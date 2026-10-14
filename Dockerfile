@@ -6,16 +6,15 @@
 FROM golang:1.22-alpine AS builder
 
 # Dependências necessárias para compilar CGO (SQLite)
-RUN apk add --no-cache gcc musl-dev
+RUN apk add --no-cache gcc musl-dev git
 
 WORKDIR /build
 
-# Cache de dependências
-COPY go.mod go.sum* ./
-RUN go mod download
-
 # Copia todo o código fonte
 COPY . .
+
+# Garante dependências resolvidas e go.sum íntegro
+RUN go mod tidy
 
 # Compilação otimizada do binário CoorpDNS
 RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o /build/coorpdns ./cmd/coorpdns
