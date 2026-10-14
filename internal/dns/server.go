@@ -1,7 +1,6 @@
 package dns
 
 import (
-	"context"
 	"net"
 	"strings"
 	"sync"
