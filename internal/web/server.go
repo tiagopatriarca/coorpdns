@@ -49,6 +49,14 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/dns-query/", s.handleDoH)
 	mux.HandleFunc("/dns-query", s.handleDoH)
 
+	// Autenticação e Gestão de Usuários (RBAC)
+	mux.HandleFunc("/api/v1/auth/login", s.handleAuthLogin)
+	mux.HandleFunc("/api/v1/auth/logout", s.handleAuthLogout)
+	mux.HandleFunc("/api/v1/auth/me", s.handleAuthMe)
+	mux.HandleFunc("/api/v1/auth/password", s.handleAuthChangePassword)
+	mux.HandleFunc("/api/v1/users", s.handleUsers)
+	mux.HandleFunc("/api/v1/users/", s.handleUserItem)
+
 	// Endpoints da API REST
 	mux.HandleFunc("/api/v1/status", s.handleStatus)
 	mux.HandleFunc("/api/v1/control/toggle", s.handleToggle)
@@ -176,6 +184,11 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleToggle(w http.ResponseWriter, r *http.Request) {
+	admin := s.requireAdmin(w, r)
+	if admin == nil {
+		return
+	}
+
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -207,12 +220,22 @@ func (s *Server) handleToggle(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
+	u := s.requireAuth(w, r)
+	if u == nil {
+		return
+	}
+
 	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
 	if days <= 0 {
 		days = 1
 	}
 
-	stats, err := s.storage.GetGlobalStats(days)
+	var allowedGroups []int64
+	if u.Role != "admin" {
+		allowedGroups = u.AllowedGroups
+	}
+
+	stats, err := s.storage.GetGlobalStatsFiltered(days, allowedGroups)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -221,12 +244,22 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
+	u := s.requireAuth(w, r)
+	if u == nil {
+		return
+	}
+
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	client := r.URL.Query().Get("client")
 	domain := r.URL.Query().Get("domain")
 	status := r.URL.Query().Get("status")
 
-	logs, err := s.storage.GetRecentLogs(limit, client, domain, status)
+	var allowedGroups []int64
+	if u.Role != "admin" {
+		allowedGroups = u.AllowedGroups
+	}
+
+	logs, err := s.storage.GetRecentLogsFiltered(limit, client, domain, status, allowedGroups)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -237,11 +270,21 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 // RELATÓRIOS (até 180 dias)
 
 func (s *Server) handleReportTopDomains(w http.ResponseWriter, r *http.Request) {
+	u := s.requireAuth(w, r)
+	if u == nil {
+		return
+	}
+
 	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	status := r.URL.Query().Get("status")
 
-	items, err := s.storage.GetTopDomains(days, limit, status)
+	var allowedGroups []int64
+	if u.Role != "admin" {
+		allowedGroups = u.AllowedGroups
+	}
+
+	items, err := s.storage.GetTopDomainsFiltered(days, limit, status, allowedGroups)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -250,10 +293,20 @@ func (s *Server) handleReportTopDomains(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleReportTopClients(w http.ResponseWriter, r *http.Request) {
+	u := s.requireAuth(w, r)
+	if u == nil {
+		return
+	}
+
 	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 
-	items, err := s.storage.GetTopClients(days, limit)
+	var allowedGroups []int64
+	if u.Role != "admin" {
+		allowedGroups = u.AllowedGroups
+	}
+
+	items, err := s.storage.GetTopClientsFiltered(days, limit, allowedGroups)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -262,11 +315,31 @@ func (s *Server) handleReportTopClients(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleReportClientActivity(w http.ResponseWriter, r *http.Request) {
+	u := s.requireAuth(w, r)
+	if u == nil {
+		return
+	}
+
 	clientIP := r.URL.Query().Get("client_ip")
 	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
 	fromDate := r.URL.Query().Get("from")
 	toDate := r.URL.Query().Get("to")
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+
+	if u.Role != "admin" && clientIP != "" && clientIP != "all" {
+		allowedClients, _ := s.storage.GetClientsFiltered(u.AllowedGroups)
+		allowed := false
+		for _, ac := range allowedClients {
+			if ac.IP == clientIP || (ac.AuthToken != "" && (ac.AuthToken == clientIP || strings.HasPrefix(clientIP, "remote-"))) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			http.Error(w, "Acesso negado a este dispositivo", http.StatusForbidden)
+			return
+		}
+	}
 
 	items, err := s.storage.GetClientDomainActivity(clientIP, days, fromDate, toDate, limit)
 	if err != nil {
@@ -277,10 +350,20 @@ func (s *Server) handleReportClientActivity(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) handleReportTimeline(w http.ResponseWriter, r *http.Request) {
+	u := s.requireAuth(w, r)
+	if u == nil {
+		return
+	}
+
+	var allowedGroups []int64
+	if u.Role != "admin" {
+		allowedGroups = u.AllowedGroups
+	}
+
 	hours := r.URL.Query().Get("hours")
 	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
 	if hours == "24" || (days == 1 && hours != "0") {
-		points, err := s.storage.GetActivity24h()
+		points, err := s.storage.GetActivity24hFiltered(allowedGroups)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -289,7 +372,7 @@ func (s *Server) handleReportTimeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	points, err := s.storage.GetTimeline(days)
+	points, err := s.storage.GetTimelineFiltered(days, allowedGroups)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -298,10 +381,20 @@ func (s *Server) handleReportTimeline(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
+	u := s.requireAuth(w, r)
+	if u == nil {
+		return
+	}
+
 	reportType := r.URL.Query().Get("type")
 	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
 	if days <= 0 {
 		days = 180
+	}
+
+	var allowedGroups []int64
+	if u.Role != "admin" {
+		allowedGroups = u.AllowedGroups
 	}
 
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
@@ -312,7 +405,7 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 
 	if reportType == "domains" {
 		writer.Write([]string{"Dominio", "Total de Consultas", "Consultas Bloqueadas", "Taxa de Bloqueio (%)"})
-		items, _ := s.storage.GetTopDomains(days, 500, "all")
+		items, _ := s.storage.GetTopDomainsFiltered(days, 500, "all", allowedGroups)
 		for _, it := range items {
 			writer.Write([]string{
 				it.Domain,
@@ -323,7 +416,7 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if reportType == "clients" {
 		writer.Write([]string{"IP do Cliente", "Nome", "Total de Consultas", "Consultas Bloqueadas", "Taxa de Bloqueio (%)"})
-		items, _ := s.storage.GetTopClients(days, 100)
+		items, _ := s.storage.GetTopClientsFiltered(days, 100, allowedGroups)
 		for _, it := range items {
 			writer.Write([]string{
 				it.ClientIP,
@@ -336,7 +429,15 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	} else if reportType == "group" {
 		groupID, _ := strconv.ParseInt(r.URL.Query().Get("group_id"), 10, 64)
 		if groupID <= 0 {
-			groupID = 1
+			if u.Role != "admin" && len(u.AllowedGroups) > 0 {
+				groupID = u.AllowedGroups[0]
+			} else {
+				groupID = 1
+			}
+		}
+		if u.Role != "admin" && !containsInt64(u.AllowedGroups, groupID) {
+			http.Error(w, "Acesso negado a este grupo", http.StatusForbidden)
+			return
 		}
 		rep, _ := s.storage.GetGroupReport(groupID, days, 200)
 		writer.Write([]string{"Grupo", "Dispositivo", "IP", "Dominio", "Total de Consultas", "Bloqueadas"})
@@ -369,10 +470,23 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleReportGroup(w http.ResponseWriter, r *http.Request) {
+	u := s.requireAuth(w, r)
+	if u == nil {
+		return
+	}
+
 	groupID, _ := strconv.ParseInt(r.URL.Query().Get("group_id"), 10, 64)
 	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
 	if groupID <= 0 {
-		groupID = 1
+		if u.Role != "admin" && len(u.AllowedGroups) > 0 {
+			groupID = u.AllowedGroups[0]
+		} else {
+			groupID = 1
+		}
+	}
+	if u.Role != "admin" && !containsInt64(u.AllowedGroups, groupID) {
+		http.Error(w, "Acesso negado a este grupo", http.StatusForbidden)
+		return
 	}
 	if days <= 0 {
 		days = 30
@@ -387,7 +501,17 @@ func (s *Server) handleReportGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
+	u := s.requireAuth(w, r)
+	if u == nil {
+		return
+	}
+
 	if r.Method == "POST" {
+		if u.Role != "admin" {
+			http.Error(w, "Apenas administradores podem criar grupos", http.StatusForbidden)
+			return
+		}
+
 		var req struct {
 			Name        string `json:"name"`
 			Description string `json:"description"`
@@ -411,7 +535,11 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	groups, err := s.storage.GetGroups()
+	var allowedGroups []int64
+	if u.Role != "admin" {
+		allowedGroups = u.AllowedGroups
+	}
+	groups, err := s.storage.GetGroupsFiltered(allowedGroups)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -420,6 +548,11 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAssignGroup(w http.ResponseWriter, r *http.Request) {
+	u := s.requireAuth(w, r)
+	if u == nil {
+		return
+	}
+
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -434,6 +567,11 @@ func (s *Server) handleAssignGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if u.Role != "admin" && !containsInt64(u.AllowedGroups, req.GroupID) {
+		http.Error(w, "Acesso negado para associar dispositivo a este grupo", http.StatusForbidden)
+		return
+	}
+
 	if err := s.storage.AssignClientToGroup(req.ClientIP, req.GroupID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -442,10 +580,19 @@ func (s *Server) handleAssignGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleClients(w http.ResponseWriter, r *http.Request) {
+	u := s.requireAuth(w, r)
+	if u == nil {
+		return
+	}
+
 	if r.Method == "POST" {
 		var c storage.Client
 		if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
 			http.Error(w, "Invalid body", http.StatusBadRequest)
+			return
+		}
+		if u.Role != "admin" && c.GroupID != nil && !containsInt64(u.AllowedGroups, *c.GroupID) {
+			http.Error(w, "Acesso negado para o grupo informado", http.StatusForbidden)
 			return
 		}
 		if err := s.storage.UpsertClient(&c); err != nil {
@@ -456,7 +603,11 @@ func (s *Server) handleClients(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clients, err := s.storage.GetClients()
+	var allowedGroups []int64
+	if u.Role != "admin" {
+		allowedGroups = u.AllowedGroups
+	}
+	clients, err := s.storage.GetClientsFiltered(allowedGroups)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -465,6 +616,11 @@ func (s *Server) handleClients(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateRemoteClient(w http.ResponseWriter, r *http.Request) {
+	u := s.requireAuth(w, r)
+	if u == nil {
+		return
+	}
+
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -477,6 +633,11 @@ func (s *Server) handleCreateRemoteClient(w http.ResponseWriter, r *http.Request
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid body", http.StatusBadRequest)
+		return
+	}
+
+	if u.Role != "admin" && !containsInt64(u.AllowedGroups, req.GroupID) {
+		http.Error(w, "Você não tem permissão para cadastrar dispositivos neste grupo", http.StatusForbidden)
 		return
 	}
 
@@ -495,6 +656,11 @@ func (s *Server) handleCreateRemoteClient(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleRevokeRemoteClient(w http.ResponseWriter, r *http.Request) {
+	u := s.requireAuth(w, r)
+	if u == nil {
+		return
+	}
+
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -518,6 +684,11 @@ func (s *Server) handleRevokeRemoteClient(w http.ResponseWriter, r *http.Request
 
 func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "POST" {
+		admin := s.requireAdmin(w, r)
+		if admin == nil {
+			return
+		}
+
 		var req struct {
 			Action string `json:"action"` // "add_block", "remove_block", "add_allow", "remove_allow"
 			Rule   string `json:"rule"`
@@ -546,6 +717,11 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	u := s.requireAuth(w, r)
+	if u == nil {
+		return
+	}
+
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"custom_rules": s.cfg.CustomRules,
 		"allow_rules":  s.cfg.AllowRules,
@@ -553,18 +729,39 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLists(w http.ResponseWriter, r *http.Request) {
+	u := s.requireAuth(w, r)
+	if u == nil {
+		return
+	}
 	jsonResponse(w, http.StatusOK, s.cfg.Blocklists)
 }
 
 func (s *Server) handleCategories(w http.ResponseWriter, r *http.Request) {
+	u := s.requireAuth(w, r)
+	if u == nil {
+		return
+	}
 	jsonResponse(w, http.StatusOK, filter.AvailableCategories)
 }
 
 func (s *Server) handleGroupCategories(w http.ResponseWriter, r *http.Request) {
+	u := s.requireAuth(w, r)
+	if u == nil {
+		return
+	}
+
 	if r.Method == "GET" {
 		groupID, _ := strconv.ParseInt(r.URL.Query().Get("group_id"), 10, 64)
 		if groupID <= 0 {
-			groupID = 1
+			if u.Role != "admin" && len(u.AllowedGroups) > 0 {
+				groupID = u.AllowedGroups[0]
+			} else {
+				groupID = 1
+			}
+		}
+		if u.Role != "admin" && !containsInt64(u.AllowedGroups, groupID) {
+			http.Error(w, "Acesso negado a este grupo", http.StatusForbidden)
+			return
 		}
 		rules, err := s.storage.GetGroupCategoryRules(groupID)
 		if err != nil {
@@ -590,6 +787,10 @@ func (s *Server) handleGroupCategories(w http.ResponseWriter, r *http.Request) {
 		if req.GroupID <= 0 {
 			req.GroupID = 1
 		}
+		if u.Role != "admin" && !containsInt64(u.AllowedGroups, req.GroupID) {
+			http.Error(w, "Acesso negado para gerenciar categorias deste grupo", http.StatusForbidden)
+			return
+		}
 		if err := s.storage.SetGroupCategories(req.GroupID, req.Rules); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -601,12 +802,21 @@ func (s *Server) handleGroupCategories(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleConditionalForwarders(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
+		u := s.requireAuth(w, r)
+		if u == nil {
+			return
+		}
 		list, err := s.storage.GetConditionalForwarders()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		jsonResponse(w, http.StatusOK, list)
+		return
+	}
+
+	admin := s.requireAdmin(w, r)
+	if admin == nil {
 		return
 	}
 
@@ -646,6 +856,10 @@ func (s *Server) handleConditionalForwarders(w http.ResponseWriter, r *http.Requ
 
 func (s *Server) handleSupportConfig(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
+		u := s.requireAuth(w, r)
+		if u == nil {
+			return
+		}
 		jsonResponse(w, http.StatusOK, map[string]interface{}{
 			"block_mode":    s.cfg.Server.BlockMode,
 			"server_ip":     s.cfg.Server.ServerIP,
@@ -653,6 +867,11 @@ func (s *Server) handleSupportConfig(w http.ResponseWriter, r *http.Request) {
 			"support_phone": s.cfg.Server.SupportPhone,
 			"org_name":      s.cfg.Server.OrgName,
 		})
+		return
+	}
+
+	admin := s.requireAdmin(w, r)
+	if admin == nil {
 		return
 	}
 

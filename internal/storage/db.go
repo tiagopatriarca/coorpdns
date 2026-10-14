@@ -202,6 +202,11 @@ func (d *DB) migrate() error {
 	d.db.Exec("ALTER TABLE clients ADD COLUMN status TEXT DEFAULT 'active'")
 	d.db.Exec("ALTER TABLE clients ADD COLUMN group_id INTEGER DEFAULT 1")
 
+	// Migração de Usuários, Permissões e Sessões
+	if err := d.MigrateUsers(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -360,15 +365,26 @@ func (d *DB) UpsertClient(c *Client) error {
 }
 
 func (d *DB) GetClients() ([]Client, error) {
+	return d.GetClientsFiltered(nil)
+}
+
+func (d *DB) GetClientsFiltered(allowedGroupIDs []int64) ([]Client, error) {
 	query := `
 		SELECT 
 			c.ip, c.name, c.mac_address, c.comment, c.block_enabled, c.auth_token, c.is_remote, c.status, 
 			COALESCE(c.group_id, 1), COALESCE(g.name, 'Geral / Padrão'), COALESCE(g.color, '#64748b'), c.created_at 
 		FROM clients c
 		LEFT JOIN client_groups g ON c.group_id = g.id
-		ORDER BY c.is_remote DESC, c.name ASC
 	`
-	rows, err := d.db.Query(query)
+	var args []interface{}
+	if allowedGroupIDs != nil {
+		clause, clauseArgs := buildGroupFilterClause("c.group_id", allowedGroupIDs)
+		query += " WHERE " + clause
+		args = append(args, clauseArgs...)
+	}
+
+	query += " ORDER BY c.is_remote DESC, c.name ASC"
+	rows, err := d.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -467,16 +483,29 @@ func (d *DB) AssignClientToGroup(clientIP string, groupID int64) error {
 
 // Operações de Grupos
 func (d *DB) GetGroups() ([]ClientGroup, error) {
+	return d.GetGroupsFiltered(nil)
+}
+
+func (d *DB) GetGroupsFiltered(allowedGroupIDs []int64) ([]ClientGroup, error) {
 	query := `
 		SELECT 
 			g.id, g.name, COALESCE(g.description, ''), g.color, g.created_at,
 			COUNT(c.ip) AS client_count
 		FROM client_groups g
 		LEFT JOIN clients c ON g.id = c.group_id AND c.status = 'active'
+	`
+	var args []interface{}
+	if allowedGroupIDs != nil {
+		clause, clauseArgs := buildGroupFilterClause("g.id", allowedGroupIDs)
+		query += " WHERE " + clause
+		args = append(args, clauseArgs...)
+	}
+
+	query += `
 		GROUP BY g.id
 		ORDER BY g.id ASC
 	`
-	rows, err := d.db.Query(query)
+	rows, err := d.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -527,12 +556,22 @@ func (d *DB) DeleteGroup(id int64) error {
 }
 
 func (d *DB) GetRecentLogs(limit int, filterClient, filterDomain, filterStatus string) ([]QueryLogRecord, error) {
+	return d.GetRecentLogsFiltered(limit, filterClient, filterDomain, filterStatus, nil)
+}
+
+func (d *DB) GetRecentLogsFiltered(limit int, filterClient, filterDomain, filterStatus string, allowedGroupIDs []int64) ([]QueryLogRecord, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
 
 	query := "SELECT timestamp, client_ip, domain, qtype, status, rule_matched, upstream, latency_ms FROM dns_queries WHERE 1=1"
 	var args []interface{}
+
+	if allowedGroupIDs != nil {
+		cond, condArgs := buildClientInGroupSubquery("client_ip", allowedGroupIDs)
+		query += " AND " + cond
+		args = append(args, condArgs...)
+	}
 
 	if filterClient != "" {
 		query += " AND client_ip = ?"

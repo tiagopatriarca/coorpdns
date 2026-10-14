@@ -14,6 +14,8 @@ const state = {
   selectedGroupForReport: 1,
   groups: [],
   clients: [],
+  users: [],
+  currentUser: null,
   availableCategories: [],
   currentCategoryGroup: 1,
   groupCategoryRules: {},
@@ -27,6 +29,8 @@ const state = {
 // ==========================================================
 document.addEventListener('DOMContentLoaded', () => {
   setupNavigation();
+  setupAuthControls();
+  setupUserControls();
   setupReportsControls();
   setupLiveLogControls();
   setupClientModal();
@@ -37,19 +41,18 @@ document.addEventListener('DOMContentLoaded', () => {
   setupMasterToggle();
   setupRulesForm();
 
-  // Carga inicial
-  refreshStatus();
-  refreshDashboard();
-  loadGroups();
-  loadClients();
-  loadRules();
-  loadLists();
+  // Validação de autenticação inicial
+  checkAuth();
 
   // Atualização periódica automática
-  setInterval(refreshStatus, 3000);
-  setInterval(refreshDashboard, 10000);
   setInterval(() => {
-    if (state.currentTab === 'logs') {
+    if (state.currentUser) refreshStatus();
+  }, 3000);
+  setInterval(() => {
+    if (state.currentUser && state.currentTab === 'dashboard') refreshDashboard();
+  }, 10000);
+  setInterval(() => {
+    if (state.currentUser && state.currentTab === 'logs') {
       loadLiveLogs();
     }
   }, 2500);
@@ -93,6 +96,7 @@ function switchTab(tabId) {
     logs: ['Log de Consultas DNS', 'Acompanhamento em tempo real das requisições DNS processadas na sua rede'],
     clients: ['Gerenciamento de Dispositivos', 'Nomeie e personalize os aparelhos conectados para facilitar o monitoramento'],
     rules: ['Regras & Listas de Bloqueio', 'Gerencie listas comunitárias e adicione regras de bloqueio ou exceção personalizadas'],
+    users: ['Gerenciamento de Usuários & Acessos', 'Cadastre operadores e defina permissões por grupos de dispositivos'],
     guide: ['Guia de Configuração do Roteador', 'Como ativar a proteção em toda a sua residência com poucos cliques'],
   };
 
@@ -108,6 +112,8 @@ function switchTab(tabId) {
     loadLiveLogs();
   } else if (tabId === 'clients') {
     loadClients();
+  } else if (tabId === 'users') {
+    loadUsers();
   }
 }
 
@@ -1543,5 +1549,408 @@ async function saveSupportConfig() {
     console.error(err);
   }
 }
+
+// ==========================================================
+// Autenticação & Sessão (Login, Logout, RBAC)
+// ==========================================================
+async function checkAuth() {
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/auth/me`);
+    if (res.ok) {
+      const user = await res.json();
+      onAuthenticated(user);
+      return true;
+    } else {
+      showLoginScreen();
+      return false;
+    }
+  } catch (err) {
+    showLoginScreen();
+    return false;
+  }
+}
+
+function showLoginScreen() {
+  state.currentUser = null;
+  const loginOverlay = document.getElementById('loginOverlay');
+  if (loginOverlay) {
+    loginOverlay.classList.remove('hidden');
+    const alertBox = document.getElementById('loginAlert');
+    if (alertBox) alertBox.classList.add('hidden');
+    const passInput = document.getElementById('loginPassword');
+    if (passInput) passInput.value = '';
+    setTimeout(() => {
+      const userInput = document.getElementById('loginUsername');
+      if (userInput) userInput.focus();
+    }, 100);
+  }
+}
+
+function onAuthenticated(user) {
+  state.currentUser = user;
+  const loginOverlay = document.getElementById('loginOverlay');
+  if (loginOverlay) loginOverlay.classList.add('hidden');
+
+  // Atualiza barra de sessão do usuário na sidebar
+  const userDisplayName = document.getElementById('userDisplayName');
+  const userDisplayRole = document.getElementById('userDisplayRole');
+  const userAvatar = document.getElementById('userAvatar');
+  if (userDisplayName) userDisplayName.textContent = user.full_name || user.username;
+  if (userDisplayRole) {
+    userDisplayRole.textContent = user.role === 'admin' ? 'Admin' : 'Operador';
+    userDisplayRole.className = `user-role-badge ${user.role === 'admin' ? 'role-admin' : 'role-operator'}`;
+  }
+  if (userAvatar) {
+    const initial = (user.full_name || user.username || 'U').charAt(0).toUpperCase();
+    userAvatar.textContent = initial;
+  }
+
+  // Visibilidade de menus e controles de acordo com o papel (RBAC)
+  const navItemUsers = document.getElementById('navItemUsers');
+  const navItemRules = document.getElementById('navItemRules');
+  const toggleGroup = document.querySelector('.toggle-control-group');
+
+  if (user.role === 'admin') {
+    if (navItemUsers) navItemUsers.style.display = 'flex';
+    if (navItemRules) navItemRules.style.display = 'flex';
+    if (toggleGroup) toggleGroup.style.display = 'flex';
+  } else {
+    if (navItemUsers) navItemUsers.style.display = 'none';
+    if (navItemRules) navItemRules.style.display = 'none';
+    if (toggleGroup) toggleGroup.style.display = 'none';
+    if (state.currentTab === 'users' || state.currentTab === 'rules') {
+      switchTab('dashboard');
+    }
+  }
+
+  // Carrega dados iniciais
+  refreshStatus();
+  refreshDashboard();
+  loadGroups();
+  loadClients();
+  if (user.role === 'admin') {
+    loadRules();
+    loadLists();
+    loadUsers();
+  }
+}
+
+function setupAuthControls() {
+  const loginForm = document.getElementById('loginForm');
+  const loginAlert = document.getElementById('loginAlert');
+  const btnLoginSubmit = document.getElementById('btnLoginSubmit');
+  const btnLogout = document.getElementById('btnLogout');
+
+  if (loginForm) {
+    loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (loginAlert) loginAlert.classList.add('hidden');
+      if (btnLoginSubmit) {
+        btnLoginSubmit.disabled = true;
+        btnLoginSubmit.innerHTML = '<span>Entrando...</span>';
+      }
+
+      const username = document.getElementById('loginUsername').value.trim();
+      const password = document.getElementById('loginPassword').value;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          onAuthenticated(data.user);
+        } else {
+          const errText = await res.text();
+          if (loginAlert) {
+            loginAlert.textContent = errText || 'Credenciais inválidas. Verifique usuário e senha.';
+            loginAlert.classList.remove('hidden');
+          }
+        }
+      } catch (err) {
+        if (loginAlert) {
+          loginAlert.textContent = 'Erro de conexão com o servidor.';
+          loginAlert.classList.remove('hidden');
+        }
+      } finally {
+        if (btnLoginSubmit) {
+          btnLoginSubmit.disabled = false;
+          btnLoginSubmit.innerHTML = `<span>Entrar no Sistema</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>`;
+        }
+      }
+    });
+  }
+
+  if (btnLogout) {
+    btnLogout.addEventListener('click', async () => {
+      if (!confirm('Deseja realmente encerrar sua sessão?')) return;
+      try {
+        await fetch(`${API_BASE}/api/v1/auth/logout`, { method: 'POST' });
+      } catch (_) {}
+      showLoginScreen();
+    });
+  }
+}
+
+// ==========================================================
+// Gerenciamento de Usuários (RBAC)
+// ==========================================================
+function setupUserControls() {
+  const modal = document.getElementById('modalUser');
+  const btnOpen = document.getElementById('btnOpenNewUserModal');
+  const btnClose = document.getElementById('btnCloseUserModal');
+  const btnCancel = document.getElementById('btnCancelUserModal');
+  const form = document.getElementById('formUser');
+  const roleSelect = document.getElementById('userRole');
+
+  if (btnOpen) {
+    btnOpen.addEventListener('click', () => {
+      openUserModal();
+    });
+  }
+
+  if (btnClose) btnClose.addEventListener('click', () => modal.classList.add('hidden'));
+  if (btnCancel) btnCancel.addEventListener('click', () => modal.classList.add('hidden'));
+
+  if (roleSelect) {
+    roleSelect.addEventListener('change', () => {
+      const container = document.getElementById('groupSelectionContainer');
+      const countEl = document.getElementById('groupSelectionCount');
+      if (roleSelect.value === 'admin') {
+        container.style.opacity = '0.5';
+        container.style.pointerEvents = 'none';
+        if (countEl) countEl.textContent = 'Todos os grupos (Admin)';
+      } else {
+        container.style.opacity = '1';
+        container.style.pointerEvents = 'auto';
+        updateGroupSelectionCount();
+      }
+    });
+  }
+
+  if (form) {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('userFormId').value;
+      const fullName = document.getElementById('userFullName').value.trim();
+      const username = document.getElementById('userUsername').value.trim();
+      const password = document.getElementById('userPassword').value;
+      const role = document.getElementById('userRole').value;
+
+      if (!fullName || !username) {
+        alert('Nome completo e login são obrigatórios.');
+        return;
+      }
+      if (!id && !password) {
+        alert('A senha é obrigatória para novos usuários.');
+        return;
+      }
+
+      // Coleta grupos marcados
+      const checkedGroups = [];
+      document.querySelectorAll('#userGroupsList input[type="checkbox"]:checked').forEach(cb => {
+        checkedGroups.push(parseInt(cb.value, 10));
+      });
+
+      if (role === 'operator' && checkedGroups.length === 0) {
+        if (!confirm('Este operador não terá acesso a nenhum grupo. Deseja continuar mesmo assim?')) {
+          return;
+        }
+      }
+
+      const payload = {
+        full_name: fullName,
+        username: username,
+        password: password,
+        role: role,
+        group_ids: checkedGroups
+      };
+
+      try {
+        let res;
+        if (id) {
+          res = await fetch(`${API_BASE}/api/v1/users/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+        } else {
+          res = await fetch(`${API_BASE}/api/v1/users`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+        }
+
+        if (res.ok) {
+          modal.classList.add('hidden');
+          loadUsers();
+        } else {
+          const err = await res.text();
+          alert('Erro ao salvar usuário: ' + err);
+        }
+      } catch (err) {
+        alert('Erro de conexão ao salvar usuário.');
+      }
+    });
+  }
+}
+
+function updateGroupSelectionCount() {
+  const count = document.querySelectorAll('#userGroupsList input[type="checkbox"]:checked').length;
+  const countEl = document.getElementById('groupSelectionCount');
+  if (countEl) {
+    countEl.textContent = `${count} selecionado${count === 1 ? '' : 's'}`;
+  }
+}
+
+function openUserModal(user = null) {
+  const modal = document.getElementById('modalUser');
+  const title = document.getElementById('modalUserTitle');
+  const formId = document.getElementById('userFormId');
+  const fullName = document.getElementById('userFullName');
+  const username = document.getElementById('userUsername');
+  const password = document.getElementById('userPassword');
+  const passwordHint = document.getElementById('userPasswordHint');
+  const roleSelect = document.getElementById('userRole');
+  const groupsList = document.getElementById('userGroupsList');
+  const container = document.getElementById('groupSelectionContainer');
+
+  // Renderiza checklist de grupos disponíveis no sistema
+  groupsList.innerHTML = state.groups.map(g => {
+    const isChecked = user && user.allowed_groups && user.allowed_groups.includes(g.id);
+    return `
+      <label class="group-checkbox-item">
+        <input type="checkbox" value="${g.id}" ${isChecked ? 'checked' : ''} onchange="updateGroupSelectionCount()">
+        <div class="group-checkbox-content">
+          <span class="group-checkbox-name">
+            <span class="group-checkbox-color-dot" style="background: ${g.color};"></span>
+            ${escapeHtml(g.name)}
+          </span>
+          <span class="tag-badge" style="font-size: 0.7rem; background: rgba(255,255,255,0.06);">${g.client_count || 0} dispositivos</span>
+        </div>
+      </label>
+    `;
+  }).join('');
+
+  if (user) {
+    title.textContent = 'Editar Usuário: ' + (user.full_name || user.username);
+    formId.value = user.id;
+    fullName.value = user.full_name || '';
+    username.value = user.username || '';
+    password.value = '';
+    password.required = false;
+    passwordHint.style.display = 'block';
+    roleSelect.value = user.role || 'operator';
+  } else {
+    title.textContent = 'Cadastrar Novo Usuário';
+    formId.value = '';
+    fullName.value = '';
+    username.value = '';
+    password.value = '';
+    password.required = true;
+    passwordHint.style.display = 'none';
+    roleSelect.value = 'operator';
+  }
+
+  if (roleSelect.value === 'admin') {
+    container.style.opacity = '0.5';
+    container.style.pointerEvents = 'none';
+    const countEl = document.getElementById('groupSelectionCount');
+    if (countEl) countEl.textContent = 'Todos os grupos (Admin)';
+  } else {
+    container.style.opacity = '1';
+    container.style.pointerEvents = 'auto';
+    updateGroupSelectionCount();
+  }
+
+  modal.classList.remove('hidden');
+}
+
+async function loadUsers() {
+  if (!state.currentUser || state.currentUser.role !== 'admin') return;
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/users`);
+    if (!res.ok) return;
+    const users = await res.json();
+    state.users = users || [];
+
+    const tbody = document.getElementById('tbodyUsers');
+    if (!tbody) return;
+
+    if (!users || users.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Nenhum usuário cadastrado.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = users.map(u => {
+      const isAdmin = u.role === 'admin';
+      const roleBadge = isAdmin
+        ? `<span class="user-role-badge role-admin">Administrador</span>`
+        : `<span class="user-role-badge role-operator">Operador</span>`;
+
+      let groupsHtml = '';
+      if (isAdmin) {
+        groupsHtml = `<span class="tag-badge" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-emerald);">Todos os Grupos (Acesso Total)</span>`;
+      } else if (!u.allowed_groups || u.allowed_groups.length === 0) {
+        groupsHtml = `<span class="text-dim" style="font-size: 0.82rem;">Nenhum grupo atribuído</span>`;
+      } else {
+        groupsHtml = u.allowed_groups.map(gid => {
+          const g = state.groups.find(group => group.id === gid);
+          const name = g ? g.name : `Grupo #${gid}`;
+          const color = g ? g.color : '#64748b';
+          return `<span class="group-pill"><span class="group-checkbox-color-dot" style="background: ${color};"></span>${escapeHtml(name)}</span>`;
+        }).join('');
+      }
+
+      const createdDate = u.created_at ? new Date(u.created_at).toLocaleDateString('pt-BR') : '-';
+      const canDelete = u.id !== 1 && u.id !== state.currentUser.id;
+
+      return `
+        <tr>
+          <td><strong>${escapeHtml(u.username)}</strong></td>
+          <td>${escapeHtml(u.full_name)}</td>
+          <td>${roleBadge}</td>
+          <td>${groupsHtml}</td>
+          <td><span class="text-dim">${createdDate}</span></td>
+          <td style="text-align: right;">
+            <div style="display: flex; gap: 0.35rem; justify-content: flex-end;">
+              <button class="btn btn-secondary btn-sm" onclick="editUserById(${u.id})">Editar</button>
+              ${canDelete ? `
+                <button class="btn btn-danger btn-sm" onclick="deleteUserById(${u.id}, '${escapeHtml(u.username)}')">Excluir</button>
+              ` : ''}
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    console.warn('Erro ao carregar usuários:', err);
+  }
+}
+
+window.editUserById = function(id) {
+  const user = state.users.find(u => u.id === id);
+  if (user) {
+    openUserModal(user);
+  }
+};
+
+window.deleteUserById = async function(id, username) {
+  if (!confirm(`Deseja realmente excluir o usuário "${username}"?`)) return;
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/users/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      loadUsers();
+    } else {
+      const err = await res.text();
+      alert('Erro ao excluir usuário: ' + err);
+    }
+  } catch (err) {
+    alert('Erro de conexão ao excluir usuário.');
+  }
+};
 
 

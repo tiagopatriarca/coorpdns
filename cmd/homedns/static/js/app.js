@@ -14,6 +14,8 @@ const state = {
   selectedGroupForReport: 1,
   groups: [],
   clients: [],
+  users: [],
+  currentUser: null,
   availableCategories: [],
   currentCategoryGroup: 1,
   groupCategoryRules: {},
@@ -27,6 +29,8 @@ const state = {
 // ==========================================================
 document.addEventListener('DOMContentLoaded', () => {
   setupNavigation();
+  setupAuthControls();
+  setupUserControls();
   setupReportsControls();
   setupLiveLogControls();
   setupClientModal();
@@ -37,19 +41,18 @@ document.addEventListener('DOMContentLoaded', () => {
   setupMasterToggle();
   setupRulesForm();
 
-  // Carga inicial
-  refreshStatus();
-  refreshDashboard();
-  loadGroups();
-  loadClients();
-  loadRules();
-  loadLists();
+  // Validação de autenticação inicial
+  checkAuth();
 
   // Atualização periódica automática
-  setInterval(refreshStatus, 3000);
-  setInterval(refreshDashboard, 10000);
   setInterval(() => {
-    if (state.currentTab === 'logs') {
+    if (state.currentUser) refreshStatus();
+  }, 3000);
+  setInterval(() => {
+    if (state.currentUser && state.currentTab === 'dashboard') refreshDashboard();
+  }, 10000);
+  setInterval(() => {
+    if (state.currentUser && state.currentTab === 'logs') {
       loadLiveLogs();
     }
   }, 2500);
@@ -93,6 +96,7 @@ function switchTab(tabId) {
     logs: ['Log de Consultas DNS', 'Acompanhamento em tempo real das requisições DNS processadas na sua rede'],
     clients: ['Gerenciamento de Dispositivos', 'Nomeie e personalize os aparelhos conectados para facilitar o monitoramento'],
     rules: ['Regras & Listas de Bloqueio', 'Gerencie listas comunitárias e adicione regras de bloqueio ou exceção personalizadas'],
+    users: ['Gerenciamento de Usuários & Acessos', 'Cadastre operadores e defina permissões por grupos de dispositivos'],
     guide: ['Guia de Configuração do Roteador', 'Como ativar a proteção em toda a sua residência com poucos cliques'],
   };
 
@@ -108,6 +112,8 @@ function switchTab(tabId) {
     loadLiveLogs();
   } else if (tabId === 'clients') {
     loadClients();
+  } else if (tabId === 'users') {
+    loadUsers();
   }
 }
 
@@ -265,57 +271,120 @@ async function loadQuickClients() {
 
 async function renderTimelineChart() {
   try {
-    const res = await fetch(`${API_BASE}/api/v1/reports/timeline?days=30`);
+    const res = await fetch(`${API_BASE}/api/v1/reports/timeline?hours=24`);
     if (!res.ok) return;
-    const points = await res.json();
+    let points = await res.json();
     const svg = document.getElementById('timelineSvg');
+    if (!svg) return;
+
     if (!points || points.length === 0) {
-      svg.innerHTML = '<text x="450" y="120" text-anchor="middle" fill="#64748b" font-size="14">Aguardando dados de tráfego histórico...</text>';
+      svg.innerHTML = '<text x="450" y="120" text-anchor="middle" fill="#64748b" font-size="13">Aguardando dados de consultas DNS...</text>';
       return;
     }
 
     const width = 900;
     const height = 240;
-    const padding = 30;
+    const paddingLeft = 45;
+    const paddingRight = 20;
+    const paddingTop = 25;
+    const paddingBottom = 35;
+    const plotWidth = width - paddingLeft - paddingRight;
+    const plotHeight = height - paddingTop - paddingBottom;
 
-    const maxVal = Math.max(...points.map(p => p.total_queries), 10);
-    const stepX = (width - padding * 2) / Math.max(points.length - 1, 1);
+    const maxQueries = Math.max(...points.map(p => p.total_queries), 5);
+    // Margem superior de 15% para as curvas não baterem no topo
+    const maxVal = Math.ceil(maxQueries * 1.15);
+    const stepX = plotWidth / Math.max(points.length - 1, 1);
 
-    const totalPoints = [];
-    const blockedPoints = [];
+    const totalCoords = [];
+    const blockedCoords = [];
+    let circleNodes = '';
 
     points.forEach((p, idx) => {
-      const x = padding + idx * stepX;
-      const yTotal = height - padding - (p.total_queries / maxVal) * (height - padding * 2);
-      const yBlocked = height - padding - (p.blocked_queries / maxVal) * (height - padding * 2);
-      totalPoints.push(`${x},${yTotal}`);
-      blockedPoints.push(`${x},${yBlocked}`);
+      const x = paddingLeft + idx * stepX;
+      const yTotal = paddingTop + plotHeight - (p.total_queries / maxVal) * plotHeight;
+      const yBlocked = paddingTop + plotHeight - (p.blocked_queries / maxVal) * plotHeight;
+      totalCoords.push({ x, y: yTotal, q: p.total_queries, date: p.date });
+      blockedCoords.push({ x, y: yBlocked, q: p.blocked_queries, date: p.date });
+
+      if (p.total_queries > 0) {
+        circleNodes += `
+          <circle cx="${x}" cy="${yTotal}" r="4" fill="#10b981" stroke="#090d16" stroke-width="2">
+            <title>${p.date} - Total: ${p.total_queries} consultas</title>
+          </circle>
+        `;
+      }
+      if (p.blocked_queries > 0) {
+        circleNodes += `
+          <circle cx="${x}" cy="${yBlocked}" r="3.5" fill="#ef4444" stroke="#090d16" stroke-width="2">
+            <title>${p.date} - Bloqueadas: ${p.blocked_queries}</title>
+          </circle>
+        `;
+      }
     });
 
-    const totalPath = `M ${totalPoints.join(' L ')}`;
-    const blockedPath = `M ${blockedPoints.join(' L ')}`;
+    const baselineY = paddingTop + plotHeight;
+    const totalLine = totalCoords.map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ');
+    const totalArea = `${totalLine} L ${totalCoords[totalCoords.length - 1].x.toFixed(1)},${baselineY} L ${totalCoords[0].x.toFixed(1)},${baselineY} Z`;
 
-    // Monta SVG polilinha com gradientes suaves
+    const blockedLine = blockedCoords.map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ');
+    const blockedArea = `${blockedLine} L ${blockedCoords[blockedCoords.length - 1].x.toFixed(1)},${baselineY} L ${blockedCoords[0].x.toFixed(1)},${baselineY} Z`;
+
+    // Rótulos do Eixo X (a cada 3 ou 4 horas)
+    let xLabels = '';
+    const labelStep = Math.max(Math.floor(points.length / 7), 1);
+    points.forEach((p, idx) => {
+      if (idx % labelStep === 0 || idx === points.length - 1) {
+        const x = paddingLeft + idx * stepX;
+        xLabels += `<text x="${x}" y="${height - 10}" text-anchor="middle" fill="#64748b" font-size="11" font-family="sans-serif">${p.date}</text>`;
+      }
+    });
+
+    // Rótulos do Eixo Y (Máximo, Médio, Zero)
+    const midVal = Math.round(maxVal / 2);
+    const midY = paddingTop + plotHeight / 2;
+
     svg.innerHTML = `
       <defs>
         <linearGradient id="gradEmerald" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#10b981" stop-opacity="0.4"/>
+          <stop offset="0%" stop-color="#10b981" stop-opacity="0.35"/>
           <stop offset="100%" stop-color="#10b981" stop-opacity="0.0"/>
         </linearGradient>
+        <linearGradient id="gradRed" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#ef4444" stop-opacity="0.25"/>
+          <stop offset="100%" stop-color="#ef4444" stop-opacity="0.0"/>
+        </linearGradient>
       </defs>
-      <!-- Linhas de grade sutis -->
-      <line x1="${padding}" y1="${padding}" x2="${width - padding}" y2="${padding}" stroke="rgba(255,255,255,0.05)" />
-      <line x1="${padding}" y1="${height/2}" x2="${width - padding}" y2="${height/2}" stroke="rgba(255,255,255,0.05)" />
-      <line x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}" stroke="rgba(255,255,255,0.1)" />
 
-      <!-- Linhas de dados -->
-      <path d="${totalPath}" fill="none" stroke="#10b981" stroke-width="3" stroke-linecap="round"/>
-      <path d="${blockedPath}" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-dasharray="4 2"/>
+      <!-- Linhas de Grade Horizontais -->
+      <line x1="${paddingLeft}" y1="${paddingTop}" x2="${width - paddingRight}" y2="${paddingTop}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="4 4" />
+      <text x="${paddingLeft - 8}" y="${paddingTop + 4}" text-anchor="end" fill="#64748b" font-size="10">${maxVal}</text>
+
+      <line x1="${paddingLeft}" y1="${midY}" x2="${width - paddingRight}" y2="${midY}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="4 4" />
+      <text x="${paddingLeft - 8}" y="${midY + 4}" text-anchor="end" fill="#64748b" font-size="10">${midVal}</text>
+
+      <line x1="${paddingLeft}" y1="${baselineY}" x2="${width - paddingRight}" y2="${baselineY}" stroke="rgba(255,255,255,0.12)" />
+      <text x="${paddingLeft - 8}" y="${baselineY + 4}" text-anchor="end" fill="#64748b" font-size="10">0</text>
+
+      <!-- Áreas Preenchidas -->
+      <path d="${totalArea}" fill="url(#gradEmerald)"/>
+      <path d="${blockedArea}" fill="url(#gradRed)"/>
+
+      <!-- Linhas das Curvas -->
+      <path d="${totalLine}" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="${blockedLine}" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+
+      <!-- Pontos Interativos com Tooltip -->
+      ${circleNodes}
+
+      <!-- Rótulos de Horário (Eixo X) -->
+      ${xLabels}
     `;
   } catch (err) {
-    console.warn(err);
+    console.warn('Erro ao renderizar gráfico:', err);
   }
 }
+
 
 // ==========================================================
 // ABA DE RELATÓRIOS (180 DIAS)
@@ -988,6 +1057,11 @@ async function loadClients() {
           <td>${escapeHtml(c.comment || '-')}</td>
           <td>
             <div style="display: flex; gap: 0.35rem;">
+              ${isRemote && !isRevoked ? `
+                <button class="btn btn-sm" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-weight: 600;" onclick="copyPsInstallCommand('${c.auth_token}')" title="Copiar comando PowerShell Admin para instalar neste PC">
+                  ⚡ Instalar
+                </button>
+              ` : ''}
               <button class="btn btn-secondary btn-sm" onclick="openEditClient('${c.ip}', '${escapeHtml(c.name)}', '${escapeHtml(c.comment)}', ${c.group_id || 1})">
                 Editar
               </button>
@@ -1005,6 +1079,18 @@ async function loadClients() {
     console.warn(err);
   }
 }
+
+window.copyPsInstallCommand = function(token) {
+  if (!token) return;
+  const origin = window.location.origin;
+  const cmd = `irm ${origin}/install.ps1?token=${token} | iex`;
+  navigator.clipboard.writeText(cmd).then(() => {
+    alert('Comando PowerShell copiado com sucesso!\n\nAbra o PowerShell como Administrador e execute:\n\n' + cmd);
+  }).catch(() => {
+    prompt('Copie o comando de instalação para executar no PowerShell como Administrador:', cmd);
+  });
+};
+
 
 async function revokeRemoteClient(token) {
   if (!confirm('Deseja realmente revogar o acesso deste dispositivo remoto? Ele não conseguirá mais resolver nomes.')) return;
@@ -1463,5 +1549,408 @@ async function saveSupportConfig() {
     console.error(err);
   }
 }
+
+// ==========================================================
+// Autenticação & Sessão (Login, Logout, RBAC)
+// ==========================================================
+async function checkAuth() {
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/auth/me`);
+    if (res.ok) {
+      const user = await res.json();
+      onAuthenticated(user);
+      return true;
+    } else {
+      showLoginScreen();
+      return false;
+    }
+  } catch (err) {
+    showLoginScreen();
+    return false;
+  }
+}
+
+function showLoginScreen() {
+  state.currentUser = null;
+  const loginOverlay = document.getElementById('loginOverlay');
+  if (loginOverlay) {
+    loginOverlay.classList.remove('hidden');
+    const alertBox = document.getElementById('loginAlert');
+    if (alertBox) alertBox.classList.add('hidden');
+    const passInput = document.getElementById('loginPassword');
+    if (passInput) passInput.value = '';
+    setTimeout(() => {
+      const userInput = document.getElementById('loginUsername');
+      if (userInput) userInput.focus();
+    }, 100);
+  }
+}
+
+function onAuthenticated(user) {
+  state.currentUser = user;
+  const loginOverlay = document.getElementById('loginOverlay');
+  if (loginOverlay) loginOverlay.classList.add('hidden');
+
+  // Atualiza barra de sessão do usuário na sidebar
+  const userDisplayName = document.getElementById('userDisplayName');
+  const userDisplayRole = document.getElementById('userDisplayRole');
+  const userAvatar = document.getElementById('userAvatar');
+  if (userDisplayName) userDisplayName.textContent = user.full_name || user.username;
+  if (userDisplayRole) {
+    userDisplayRole.textContent = user.role === 'admin' ? 'Admin' : 'Operador';
+    userDisplayRole.className = `user-role-badge ${user.role === 'admin' ? 'role-admin' : 'role-operator'}`;
+  }
+  if (userAvatar) {
+    const initial = (user.full_name || user.username || 'U').charAt(0).toUpperCase();
+    userAvatar.textContent = initial;
+  }
+
+  // Visibilidade de menus e controles de acordo com o papel (RBAC)
+  const navItemUsers = document.getElementById('navItemUsers');
+  const navItemRules = document.getElementById('navItemRules');
+  const toggleGroup = document.querySelector('.toggle-control-group');
+
+  if (user.role === 'admin') {
+    if (navItemUsers) navItemUsers.style.display = 'flex';
+    if (navItemRules) navItemRules.style.display = 'flex';
+    if (toggleGroup) toggleGroup.style.display = 'flex';
+  } else {
+    if (navItemUsers) navItemUsers.style.display = 'none';
+    if (navItemRules) navItemRules.style.display = 'none';
+    if (toggleGroup) toggleGroup.style.display = 'none';
+    if (state.currentTab === 'users' || state.currentTab === 'rules') {
+      switchTab('dashboard');
+    }
+  }
+
+  // Carrega dados iniciais
+  refreshStatus();
+  refreshDashboard();
+  loadGroups();
+  loadClients();
+  if (user.role === 'admin') {
+    loadRules();
+    loadLists();
+    loadUsers();
+  }
+}
+
+function setupAuthControls() {
+  const loginForm = document.getElementById('loginForm');
+  const loginAlert = document.getElementById('loginAlert');
+  const btnLoginSubmit = document.getElementById('btnLoginSubmit');
+  const btnLogout = document.getElementById('btnLogout');
+
+  if (loginForm) {
+    loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (loginAlert) loginAlert.classList.add('hidden');
+      if (btnLoginSubmit) {
+        btnLoginSubmit.disabled = true;
+        btnLoginSubmit.innerHTML = '<span>Entrando...</span>';
+      }
+
+      const username = document.getElementById('loginUsername').value.trim();
+      const password = document.getElementById('loginPassword').value;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          onAuthenticated(data.user);
+        } else {
+          const errText = await res.text();
+          if (loginAlert) {
+            loginAlert.textContent = errText || 'Credenciais inválidas. Verifique usuário e senha.';
+            loginAlert.classList.remove('hidden');
+          }
+        }
+      } catch (err) {
+        if (loginAlert) {
+          loginAlert.textContent = 'Erro de conexão com o servidor.';
+          loginAlert.classList.remove('hidden');
+        }
+      } finally {
+        if (btnLoginSubmit) {
+          btnLoginSubmit.disabled = false;
+          btnLoginSubmit.innerHTML = `<span>Entrar no Sistema</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>`;
+        }
+      }
+    });
+  }
+
+  if (btnLogout) {
+    btnLogout.addEventListener('click', async () => {
+      if (!confirm('Deseja realmente encerrar sua sessão?')) return;
+      try {
+        await fetch(`${API_BASE}/api/v1/auth/logout`, { method: 'POST' });
+      } catch (_) {}
+      showLoginScreen();
+    });
+  }
+}
+
+// ==========================================================
+// Gerenciamento de Usuários (RBAC)
+// ==========================================================
+function setupUserControls() {
+  const modal = document.getElementById('modalUser');
+  const btnOpen = document.getElementById('btnOpenNewUserModal');
+  const btnClose = document.getElementById('btnCloseUserModal');
+  const btnCancel = document.getElementById('btnCancelUserModal');
+  const form = document.getElementById('formUser');
+  const roleSelect = document.getElementById('userRole');
+
+  if (btnOpen) {
+    btnOpen.addEventListener('click', () => {
+      openUserModal();
+    });
+  }
+
+  if (btnClose) btnClose.addEventListener('click', () => modal.classList.add('hidden'));
+  if (btnCancel) btnCancel.addEventListener('click', () => modal.classList.add('hidden'));
+
+  if (roleSelect) {
+    roleSelect.addEventListener('change', () => {
+      const container = document.getElementById('groupSelectionContainer');
+      const countEl = document.getElementById('groupSelectionCount');
+      if (roleSelect.value === 'admin') {
+        container.style.opacity = '0.5';
+        container.style.pointerEvents = 'none';
+        if (countEl) countEl.textContent = 'Todos os grupos (Admin)';
+      } else {
+        container.style.opacity = '1';
+        container.style.pointerEvents = 'auto';
+        updateGroupSelectionCount();
+      }
+    });
+  }
+
+  if (form) {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('userFormId').value;
+      const fullName = document.getElementById('userFullName').value.trim();
+      const username = document.getElementById('userUsername').value.trim();
+      const password = document.getElementById('userPassword').value;
+      const role = document.getElementById('userRole').value;
+
+      if (!fullName || !username) {
+        alert('Nome completo e login são obrigatórios.');
+        return;
+      }
+      if (!id && !password) {
+        alert('A senha é obrigatória para novos usuários.');
+        return;
+      }
+
+      // Coleta grupos marcados
+      const checkedGroups = [];
+      document.querySelectorAll('#userGroupsList input[type="checkbox"]:checked').forEach(cb => {
+        checkedGroups.push(parseInt(cb.value, 10));
+      });
+
+      if (role === 'operator' && checkedGroups.length === 0) {
+        if (!confirm('Este operador não terá acesso a nenhum grupo. Deseja continuar mesmo assim?')) {
+          return;
+        }
+      }
+
+      const payload = {
+        full_name: fullName,
+        username: username,
+        password: password,
+        role: role,
+        group_ids: checkedGroups
+      };
+
+      try {
+        let res;
+        if (id) {
+          res = await fetch(`${API_BASE}/api/v1/users/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+        } else {
+          res = await fetch(`${API_BASE}/api/v1/users`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+        }
+
+        if (res.ok) {
+          modal.classList.add('hidden');
+          loadUsers();
+        } else {
+          const err = await res.text();
+          alert('Erro ao salvar usuário: ' + err);
+        }
+      } catch (err) {
+        alert('Erro de conexão ao salvar usuário.');
+      }
+    });
+  }
+}
+
+function updateGroupSelectionCount() {
+  const count = document.querySelectorAll('#userGroupsList input[type="checkbox"]:checked').length;
+  const countEl = document.getElementById('groupSelectionCount');
+  if (countEl) {
+    countEl.textContent = `${count} selecionado${count === 1 ? '' : 's'}`;
+  }
+}
+
+function openUserModal(user = null) {
+  const modal = document.getElementById('modalUser');
+  const title = document.getElementById('modalUserTitle');
+  const formId = document.getElementById('userFormId');
+  const fullName = document.getElementById('userFullName');
+  const username = document.getElementById('userUsername');
+  const password = document.getElementById('userPassword');
+  const passwordHint = document.getElementById('userPasswordHint');
+  const roleSelect = document.getElementById('userRole');
+  const groupsList = document.getElementById('userGroupsList');
+  const container = document.getElementById('groupSelectionContainer');
+
+  // Renderiza checklist de grupos disponíveis no sistema
+  groupsList.innerHTML = state.groups.map(g => {
+    const isChecked = user && user.allowed_groups && user.allowed_groups.includes(g.id);
+    return `
+      <label class="group-checkbox-item">
+        <input type="checkbox" value="${g.id}" ${isChecked ? 'checked' : ''} onchange="updateGroupSelectionCount()">
+        <div class="group-checkbox-content">
+          <span class="group-checkbox-name">
+            <span class="group-checkbox-color-dot" style="background: ${g.color};"></span>
+            ${escapeHtml(g.name)}
+          </span>
+          <span class="tag-badge" style="font-size: 0.7rem; background: rgba(255,255,255,0.06);">${g.client_count || 0} dispositivos</span>
+        </div>
+      </label>
+    `;
+  }).join('');
+
+  if (user) {
+    title.textContent = 'Editar Usuário: ' + (user.full_name || user.username);
+    formId.value = user.id;
+    fullName.value = user.full_name || '';
+    username.value = user.username || '';
+    password.value = '';
+    password.required = false;
+    passwordHint.style.display = 'block';
+    roleSelect.value = user.role || 'operator';
+  } else {
+    title.textContent = 'Cadastrar Novo Usuário';
+    formId.value = '';
+    fullName.value = '';
+    username.value = '';
+    password.value = '';
+    password.required = true;
+    passwordHint.style.display = 'none';
+    roleSelect.value = 'operator';
+  }
+
+  if (roleSelect.value === 'admin') {
+    container.style.opacity = '0.5';
+    container.style.pointerEvents = 'none';
+    const countEl = document.getElementById('groupSelectionCount');
+    if (countEl) countEl.textContent = 'Todos os grupos (Admin)';
+  } else {
+    container.style.opacity = '1';
+    container.style.pointerEvents = 'auto';
+    updateGroupSelectionCount();
+  }
+
+  modal.classList.remove('hidden');
+}
+
+async function loadUsers() {
+  if (!state.currentUser || state.currentUser.role !== 'admin') return;
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/users`);
+    if (!res.ok) return;
+    const users = await res.json();
+    state.users = users || [];
+
+    const tbody = document.getElementById('tbodyUsers');
+    if (!tbody) return;
+
+    if (!users || users.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Nenhum usuário cadastrado.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = users.map(u => {
+      const isAdmin = u.role === 'admin';
+      const roleBadge = isAdmin
+        ? `<span class="user-role-badge role-admin">Administrador</span>`
+        : `<span class="user-role-badge role-operator">Operador</span>`;
+
+      let groupsHtml = '';
+      if (isAdmin) {
+        groupsHtml = `<span class="tag-badge" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-emerald);">Todos os Grupos (Acesso Total)</span>`;
+      } else if (!u.allowed_groups || u.allowed_groups.length === 0) {
+        groupsHtml = `<span class="text-dim" style="font-size: 0.82rem;">Nenhum grupo atribuído</span>`;
+      } else {
+        groupsHtml = u.allowed_groups.map(gid => {
+          const g = state.groups.find(group => group.id === gid);
+          const name = g ? g.name : `Grupo #${gid}`;
+          const color = g ? g.color : '#64748b';
+          return `<span class="group-pill"><span class="group-checkbox-color-dot" style="background: ${color};"></span>${escapeHtml(name)}</span>`;
+        }).join('');
+      }
+
+      const createdDate = u.created_at ? new Date(u.created_at).toLocaleDateString('pt-BR') : '-';
+      const canDelete = u.id !== 1 && u.id !== state.currentUser.id;
+
+      return `
+        <tr>
+          <td><strong>${escapeHtml(u.username)}</strong></td>
+          <td>${escapeHtml(u.full_name)}</td>
+          <td>${roleBadge}</td>
+          <td>${groupsHtml}</td>
+          <td><span class="text-dim">${createdDate}</span></td>
+          <td style="text-align: right;">
+            <div style="display: flex; gap: 0.35rem; justify-content: flex-end;">
+              <button class="btn btn-secondary btn-sm" onclick="editUserById(${u.id})">Editar</button>
+              ${canDelete ? `
+                <button class="btn btn-danger btn-sm" onclick="deleteUserById(${u.id}, '${escapeHtml(u.username)}')">Excluir</button>
+              ` : ''}
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    console.warn('Erro ao carregar usuários:', err);
+  }
+}
+
+window.editUserById = function(id) {
+  const user = state.users.find(u => u.id === id);
+  if (user) {
+    openUserModal(user);
+  }
+};
+
+window.deleteUserById = async function(id, username) {
+  if (!confirm(`Deseja realmente excluir o usuário "${username}"?`)) return;
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/users/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      loadUsers();
+    } else {
+      const err = await res.text();
+      alert('Erro ao excluir usuário: ' + err);
+    }
+  } catch (err) {
+    alert('Erro de conexão ao excluir usuário.');
+  }
+};
 
 

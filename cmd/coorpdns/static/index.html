@@ -4,13 +4,59 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CoorpDNS - Plataforma Corporativa de Proteção DNS & Auditoria</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <div class="app-layout">
+  <!-- TELA DE LOGIN / AUTENTICAÇÃO -->
+  <div id="loginOverlay" class="login-overlay hidden">
+    <div class="login-card">
+      <div class="login-brand">
+        <div class="brand-logo login-logo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <path d="m9 12 2 2 4-4"/>
+          </svg>
+        </div>
+        <h2>CoorpDNS Enterprise</h2>
+        <p>Plataforma de Proteção DNS & Auditoria</p>
+      </div>
+
+      <div id="loginAlert" class="login-alert hidden"></div>
+
+      <form id="loginForm" class="login-form">
+        <div class="form-group">
+          <label for="loginUsername">Usuário</label>
+          <div class="input-with-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <input type="text" id="loginUsername" class="form-input" placeholder="admin" required autofocus autocomplete="username">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="loginPassword">Senha</label>
+          <div class="input-with-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <input type="password" id="loginPassword" class="form-input" placeholder="••••••••" required autocomplete="current-password">
+          </div>
+        </div>
+
+        <button type="submit" id="btnLoginSubmit" class="btn btn-primary btn-block" style="width: 100%; justify-content: center; height: 42px; margin-top: 1rem;">
+          <span>Entrar no Sistema</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+        </button>
+
+        <div class="login-hint">
+          <span>Usuário padrão inicial: <strong>admin</strong> / <strong>admin</strong></span>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="app-layout" id="appLayout">
     <!-- Barra Lateral de Navegação -->
     <aside class="sidebar">
       <div class="brand">
@@ -44,9 +90,13 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="12" x="3" y="4" rx="2"/><path d="M2 20h20"/></svg>
           Dispositivos
         </button>
-        <button class="nav-item" data-tab="rules">
+        <button class="nav-item" id="navItemRules" data-tab="rules">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"/><circle cx="7" cy="7" r=".5" fill="currentColor"/></svg>
           Regras & Listas
+        </button>
+        <button class="nav-item" id="navItemUsers" data-tab="users" style="display: none;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          Usuários
         </button>
         <button class="nav-item" data-tab="guide">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
@@ -64,6 +114,22 @@
             <span>Uptime:</span>
             <strong id="sidebarUptime">0h</strong>
           </div>
+        </div>
+
+        <!-- Sessão do Usuário Conectado -->
+        <div class="user-session-bar" id="userSessionBar">
+          <div class="user-avatar" id="userAvatar">A</div>
+          <div class="user-info">
+            <div class="user-name" id="userDisplayName">Carregando...</div>
+            <div class="user-role-badge role-admin" id="userDisplayRole">Admin</div>
+          </div>
+          <button id="btnLogout" class="btn-logout" title="Sair do Sistema">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+          </button>
         </div>
       </div>
     </aside>
@@ -548,6 +614,39 @@
               </div>
             </div>
           </div>
+      <!-- ABA 7: USUÁRIOS & PERMISSÕES RBAC -->
+      <section id="tab-users" class="tab-pane">
+        <div class="card" style="margin-bottom: 1.5rem;">
+          <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+            <div>
+              <h3>Gerenciamento de Usuários &amp; Acessos por Grupo</h3>
+              <p class="card-desc">Controle quais grupos cada operador tem permissão para visualizar e registrar dispositivos</p>
+            </div>
+            <button id="btnOpenNewUserModal" class="btn btn-primary">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px;"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+              <span>+ Novo Usuário</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="table-container">
+            <table class="data-table" id="tableUsers">
+              <thead>
+                <tr>
+                  <th>Usuário</th>
+                  <th>Nome Completo</th>
+                  <th>Perfil</th>
+                  <th>Grupos Autorizados</th>
+                  <th>Criado Em</th>
+                  <th style="text-align: right;">Ações</th>
+                </tr>
+              </thead>
+              <tbody id="tbodyUsers">
+                <!-- Preenchido via JS -->
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
     </main>
@@ -903,6 +1002,63 @@
           </a>
           <button id="btnSaveSupportConfig" class="btn btn-primary">Salvar Configurações</button>
         </div>
+  <!-- Modal de Cadastro / Edição de Usuário -->
+  <div id="modalUser" class="modal-backdrop hidden">
+    <div class="modal-dialog" style="max-width: 580px;">
+      <div class="modal-header">
+        <div>
+          <h3 id="modalUserTitle">Cadastrar Novo Usuário</h3>
+          <p class="card-desc">Defina as credenciais e selecione os grupos com permissão de gerenciamento</p>
+        </div>
+        <button class="modal-close" id="btnCloseUserModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="formUser">
+          <input type="hidden" id="userFormId" value="">
+
+          <div class="form-group">
+            <label for="userFullName">Nome Completo</label>
+            <input type="text" id="userFullName" class="form-input" placeholder="ex: Roberto Silva" required>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div class="form-group">
+              <label for="userUsername">Login / Usuário</label>
+              <input type="text" id="userUsername" class="form-input" placeholder="ex: rsilva" required>
+            </div>
+            <div class="form-group">
+              <label for="userPassword">Senha</label>
+              <input type="password" id="userPassword" class="form-input" placeholder="Senha do usuário">
+              <small id="userPasswordHint" class="text-muted" style="display: none; font-size: 0.75rem; margin-top: 0.25rem;">Deixe vazio para manter a senha atual.</small>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="userRole">Perfil de Acesso</label>
+            <select id="userRole" class="form-select" style="width: 100%;">
+              <option value="operator">Operador (Acesso restrito apenas aos grupos permitidos)</option>
+              <option value="admin">Administrador (Acesso irrestrito a todos os grupos e regras)</option>
+            </select>
+          </div>
+
+          <div class="form-group" id="groupSelectionContainer">
+            <label style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+              <span>Grupos com Acesso Permitido:</span>
+              <span style="font-size: 0.78rem; color: var(--accent-blue);" id="groupSelectionCount">0 selecionados</span>
+            </label>
+            <div class="groups-checkbox-grid" id="userGroupsList">
+              <!-- Renderizado dinamicamente -->
+            </div>
+            <small class="text-muted" style="display: block; margin-top: 0.35rem; font-size: 0.78rem;">
+              🔒 O operador só verá dados, logs, estatísticas e poderá cadastrar dispositivos nos grupos marcados acima.
+            </small>
+          </div>
+
+          <div class="modal-footer" style="margin-top: 1.5rem; justify-content: flex-end; gap: 0.75rem;">
+            <button type="button" class="btn btn-secondary" id="btnCancelUserModal">Cancelar</button>
+            <button type="submit" class="btn btn-primary" id="btnSaveUser">Salvar Usuário</button>
+          </div>
+        </form>
       </div>
     </div>
   </div>

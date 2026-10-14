@@ -12,6 +12,7 @@ Plataforma corporativa autônoma e de alto desempenho desenvolvida em **Go (Gola
 ## 📑 Sumário
 
 - [Visão Geral & Diferenciais](#-principais-diferenciais-corporativos)
+- [Autenticação & Controle de Acesso por Grupos (RBAC)](#-autenticação--controle-de-acesso-por-grupos-rbac)
 - [Instalação em 1 Linha (PowerShell / Endpoint Shield)](#-instalação-em-1-linha-no-windows-powershell)
 - [Gráfico de Atividade em Tempo Real (24 Horas)](#-gráfico-de-atividade-em-tempo-real-últimas-24h)
 - [Políticas de Categorias por Departamentos](#-políticas-de-categorias-por-grupos-de-dispositivos)
@@ -25,11 +26,35 @@ Plataforma corporativa autônoma e de alto desempenho desenvolvida em **Go (Gola
 
 ## ✨ Principais Diferenciais Corporativos
 
+- **Autenticação Segura & RBAC por Departamentos**: Gestão de usuários com login individualizado. Usuários do perfil **Operador** têm visão estritamente restrita aos grupos autorizados, sem acesso a dados, relatórios ou dispositivos de outros setores.
 - **Zero Instalação nas Redes Locais**: Aponte o IP do CoorpDNS no DHCP do Firewall ou Switch Core L3 (Fortinet, pfSense, Mikrotik, Cisco, Sophos, Windows Server DHCP) e todas as estações de trabalho e dispositivos móveis da empresa ficam imediatamente protegidos e auditados.
 - **Instalação Silenciosa em 1 Linha para Estações Remotas**: Qualquer notebook fora da empresa é integrado em segundos via PowerShell sem necessidade de instalador complexo ou configuração manual de adaptador.
 - **Proteção Completa via DNS-over-HTTPS (DoH)**: O **CoorpDNS Agent** tunela e criptografa o tráfego de notebooks em trânsito com **tokens exclusivos** por dispositivo. A porta UDP 53 não precisa ser exposta para a internet pública na VPS, prevenindo ataques de amplificação DDoS.
+- **Identidade Visual Integrada**: Favicon SVG oficial do escudo de proteção na aba do navegador e painel em glassmorphism moderno.
 - **Gráfico de Consultas Horário (Últimas 24h)**: Visualização visual e interativa com curvas em gradiente, dividida hora a hora para acompanhamento em tempo real de picos de tráfego e ameaças.
 - **Resiliência e Desempenho com SQLite em Modo WAL**: Pool otimizado para concorrência de até 25 conexões simultâneas, sem deadlocks ou bloqueios de banco de dados, com retenção histórica de até 180 dias.
+
+---
+
+## 🔐 Autenticação & Controle de Acesso por Grupos (RBAC)
+
+O CoorpDNS possui sistema completo de autenticação e governança corporativa multi-tenant por departamentos:
+
+### 1. Credenciais Iniciais de Administrador
+* **Usuário Padrão:** `admin`
+* **Senha Padrão:** `admin`
+*(Recomenda-se alterar a senha após o primeiro acesso).*
+
+### 2. Perfis de Usuário
+| Perfil | Acesso ao Sistema | Grupos de Dispositivos | Gerenciamento de Usuários |
+| :--- | :--- | :--- | :--- |
+| 👑 **Administrador** | Irrestrito | Acesso a **todos** os grupos do sistema | Pode cadastrar, editar e excluir usuários |
+| 🛡️ **Operador** | Restrito | Acesso **apenas** aos grupos marcados no seu cadastro | Não acessa a tela de usuários nem configurações globais |
+
+### 3. Isolamento Estrito de Dados
+* Operadores **não conseguem visualizar**, consultar relatórios, inspecionar logs ou cadastrar dispositivos em grupos aos quais não tenham permissão explícita.
+* No cadastro de dispositivos remotos e estações locais, o seletor exibe exclusivamente os grupos permitidos ao operador autenticado.
+* Todas as rotas de API validam no backend a sessão criptográfica (armazenada em cookies seguros e tokens com hash SHA-256 com salt).
 
 ---
 
@@ -173,6 +198,13 @@ docker compose -f docker-compose.traefik.yml up -d --build
 
 | Método | Endpoint | Descrição |
 | :--- | :--- | :--- |
+| `POST` | `/api/v1/auth/login` | Autentica usuário e inicia sessão segura (`admin` / `admin`). |
+| `POST` | `/api/v1/auth/logout` | Encerra a sessão ativa e revoga o cookie seguro. |
+| `GET` | `/api/v1/auth/me` | Retorna o usuário logado e a lista de grupos permitidos. |
+| `GET` | `/api/v1/users` | Lista todos os usuários cadastrados e seus grupos (Admin). |
+| `POST` | `/api/v1/users` | Cadastra novo usuário vinculando grupos autorizados (Admin). |
+| `PUT` | `/api/v1/users/{id}` | Atualiza dados, senha e grupos de um usuário (Admin). |
+| `DELETE` | `/api/v1/users/{id}` | Remove um usuário do sistema (Admin). |
 | `GET` | `/api/v1/status` | Estado operacional, uptime e volume de regras ativas. |
 | `POST` | `/api/v1/control/toggle` | Habilita, desabilita ou pausa temporariamente a proteção. |
 | `GET` | `/api/v1/stats?days=1` | Métricas gerais de consultas, bloqueios e clientes ativos. |
@@ -186,6 +218,7 @@ docker compose -f docker-compose.traefik.yml up -d --build
 | `GET` | `/install.ps1?token={token}` | Script PowerShell de instalação automatizada em 1 linha. |
 | `GET` | `/blocked?domain=...&category=...` | Splash page de aviso e suporte corporativo. |
 | `GET` | `/downloads/coorpdns-agent.exe` | Download direto do agente oficial para Windows x64. |
+| `GET` | `/favicon.svg` | Ícone oficial de escudo de proteção para navegadores. |
 
 ---
 

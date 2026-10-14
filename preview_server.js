@@ -92,7 +92,108 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // API Endpoints
+let mockUsers = [
+  { id: 1, username: 'admin', full_name: 'Administrador Principal', role: 'admin', allowed_groups: [1, 2, 3, 4], created_at: new Date().toISOString() },
+  { id: 2, username: 'operador_ti', full_name: 'Lucas (Operador TI)', role: 'operator', allowed_groups: [3], created_at: new Date().toISOString() },
+];
+let currentSessionUser = null;
+
+// API Endpoints
+  // Autenticação & Usuários
+  if (pathname === '/api/v1/auth/me') {
+    if (!currentSessionUser) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Não autenticado' }));
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify(currentSessionUser));
+  }
+
+  if (pathname === '/api/v1/auth/login' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      const data = JSON.parse(body || '{}');
+      const username = (data.username || '').trim();
+      const password = (data.password || '').trim();
+
+      if (username === 'admin' && password === 'admin') {
+        currentSessionUser = mockUsers[0];
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ token: 'ses_mock_admin', user: currentSessionUser }));
+      }
+
+      const found = mockUsers.find(u => u.username === username);
+      if (found && (password === 'admin' || password === '123456' || password === 'operador')) {
+        currentSessionUser = found;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ token: 'ses_mock_' + found.id, user: currentSessionUser }));
+      }
+
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Usuário ou senha incorretos' }));
+    });
+    return;
+  }
+
+  if (pathname === '/api/v1/auth/logout' && req.method === 'POST') {
+    currentSessionUser = null;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ success: true }));
+  }
+
+  if (pathname === '/api/v1/users') {
+    if (req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(mockUsers));
+    }
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', () => {
+        const data = JSON.parse(body || '{}');
+        const newUser = {
+          id: Date.now(),
+          username: data.username,
+          full_name: data.full_name,
+          role: data.role || 'operator',
+          allowed_groups: data.group_ids || [],
+          created_at: new Date().toISOString()
+        };
+        mockUsers.push(newUser);
+        res.writeHead(201, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(newUser));
+      });
+      return;
+    }
+  }
+
+  if (pathname.startsWith('/api/v1/users/')) {
+    const id = parseInt(pathname.replace('/api/v1/users/', ''), 10);
+    if (req.method === 'PUT') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', () => {
+        const data = JSON.parse(body || '{}');
+        const idx = mockUsers.findIndex(u => u.id === id);
+        if (idx !== -1) {
+          mockUsers[idx].username = data.username || mockUsers[idx].username;
+          mockUsers[idx].full_name = data.full_name || mockUsers[idx].full_name;
+          mockUsers[idx].role = data.role || mockUsers[idx].role;
+          mockUsers[idx].allowed_groups = data.group_ids || mockUsers[idx].allowed_groups;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true }));
+      });
+      return;
+    }
+    if (req.method === 'DELETE') {
+      mockUsers = mockUsers.filter(u => u.id !== id);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true }));
+    }
+  }
+
   if (pathname === '/api/v1/status') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     let pauseRemaining = 0;

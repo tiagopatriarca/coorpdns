@@ -41,21 +41,36 @@ type GlobalStats struct {
 }
 
 func (d *DB) GetGlobalStats(days int) (*GlobalStats, error) {
+	return d.GetGlobalStatsFiltered(days, nil)
+}
+
+func (d *DB) GetGlobalStatsFiltered(days int, allowedGroupIDs []int64) (*GlobalStats, error) {
 	if days <= 0 {
 		days = 1
 	}
 	cutoffDate := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
 
-	query := `
+	whereClause := "WHERE date >= ?"
+	var args []interface{}
+	args = append(args, cutoffDate)
+
+	if allowedGroupIDs != nil {
+		cond, condArgs := buildClientInGroupSubquery("client_ip", allowedGroupIDs)
+		whereClause += " AND " + cond
+		args = append(args, condArgs...)
+	}
+
+	query := fmt.Sprintf(`
 		SELECT 
 			COALESCE(SUM(total_queries), 0) AS total,
 			COALESCE(SUM(blocked_queries), 0) AS blocked,
 			COUNT(DISTINCT domain) AS unique_domains,
 			COUNT(DISTINCT client_ip) AS active_clients
 		FROM daily_client_domain_stats
-		WHERE date >= ?
-	`
-	row := d.db.QueryRow(query, cutoffDate)
+		%s
+	`, whereClause)
+
+	row := d.db.QueryRow(query, args...)
 
 	stats := &GlobalStats{}
 	err := row.Scan(&stats.TotalQueries, &stats.BlockedQueries, &stats.UniqueDomains, &stats.ActiveClients)
@@ -71,6 +86,10 @@ func (d *DB) GetGlobalStats(days int) (*GlobalStats, error) {
 
 // Relatório 1: Top Sites Mais Acessados (até 180 dias)
 func (d *DB) GetTopDomains(days int, limit int, statusFilter string) ([]TopDomainItem, error) {
+	return d.GetTopDomainsFiltered(days, limit, statusFilter, nil)
+}
+
+func (d *DB) GetTopDomainsFiltered(days int, limit int, statusFilter string, allowedGroupIDs []int64) ([]TopDomainItem, error) {
 	if days <= 0 || days > 180 {
 		days = 180
 	}
@@ -80,6 +99,15 @@ func (d *DB) GetTopDomains(days int, limit int, statusFilter string) ([]TopDomai
 	cutoffDate := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
 
 	whereClause := "WHERE date >= ?"
+	var args []interface{}
+	args = append(args, cutoffDate)
+
+	if allowedGroupIDs != nil {
+		cond, condArgs := buildClientInGroupSubquery("client_ip", allowedGroupIDs)
+		whereClause += " AND " + cond
+		args = append(args, condArgs...)
+	}
+
 	if statusFilter == "blocked" {
 		whereClause += " AND blocked_queries > 0"
 	} else if statusFilter == "allowed" {
@@ -97,8 +125,9 @@ func (d *DB) GetTopDomains(days int, limit int, statusFilter string) ([]TopDomai
 		ORDER BY total DESC
 		LIMIT ?
 	`, whereClause)
+	args = append(args, limit)
 
-	rows, err := d.db.Query(query, cutoffDate, limit)
+	rows, err := d.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -120,6 +149,10 @@ func (d *DB) GetTopDomains(days int, limit int, statusFilter string) ([]TopDomai
 
 // Relatório 2: Top Máquinas Que Mais Consomem (até 180 dias)
 func (d *DB) GetTopClients(days int, limit int) ([]TopClientItem, error) {
+	return d.GetTopClientsFiltered(days, limit, nil)
+}
+
+func (d *DB) GetTopClientsFiltered(days int, limit int, allowedGroupIDs []int64) ([]TopClientItem, error) {
 	if days <= 0 || days > 180 {
 		days = 180
 	}
@@ -128,21 +161,32 @@ func (d *DB) GetTopClients(days int, limit int) ([]TopClientItem, error) {
 	}
 	cutoffDate := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
 
-	query := `
+	whereClause := "WHERE s.date >= ?"
+	var args []interface{}
+	args = append(args, cutoffDate)
+
+	if allowedGroupIDs != nil {
+		cond, condArgs := buildClientInGroupSubquery("s.client_ip", allowedGroupIDs)
+		whereClause += " AND " + cond
+		args = append(args, condArgs...)
+	}
+
+	query := fmt.Sprintf(`
 		SELECT 
 			s.client_ip,
 			COALESCE(c.name, '') as client_name,
 			SUM(s.total_queries) as total,
 			SUM(s.blocked_queries) as blocked
 		FROM daily_client_domain_stats s
-		LEFT JOIN clients c ON s.client_ip = c.ip
-		WHERE s.date >= ?
+		LEFT JOIN clients c ON s.client_ip = c.ip OR s.client_ip = c.auth_token OR s.client_ip = ('remote-' || substr(c.auth_token, 1, 10))
+		%s
 		GROUP BY s.client_ip
 		ORDER BY total DESC
 		LIMIT ?
-	`
+	`, whereClause)
+	args = append(args, limit)
 
-	rows, err := d.db.Query(query, cutoffDate, limit)
+	rows, err := d.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -224,23 +268,37 @@ func (d *DB) GetClientDomainActivity(clientIP string, days int, fromDate, toDate
 
 // Série temporal diária para montar gráficos ao longo de 180 dias
 func (d *DB) GetTimeline(days int) ([]TimelinePoint, error) {
+	return d.GetTimelineFiltered(days, nil)
+}
+
+func (d *DB) GetTimelineFiltered(days int, allowedGroupIDs []int64) ([]TimelinePoint, error) {
 	if days <= 0 || days > 180 {
 		days = 30
 	}
 	cutoffDate := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
 
-	query := `
+	whereClause := "WHERE date >= ?"
+	var args []interface{}
+	args = append(args, cutoffDate)
+
+	if allowedGroupIDs != nil {
+		cond, condArgs := buildClientInGroupSubquery("client_ip", allowedGroupIDs)
+		whereClause += " AND " + cond
+		args = append(args, condArgs...)
+	}
+
+	query := fmt.Sprintf(`
 		SELECT 
 			date,
 			SUM(total_queries) as total,
 			SUM(blocked_queries) as blocked
 		FROM daily_client_domain_stats
-		WHERE date >= ?
+		%s
 		GROUP BY date
 		ORDER BY date ASC
-	`
+	`, whereClause)
 
-	rows, err := d.db.Query(query, cutoffDate)
+	rows, err := d.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -259,6 +317,10 @@ func (d *DB) GetTimeline(days int) ([]TimelinePoint, error) {
 
 // Série temporal horária das últimas 24 horas para o gráfico do dashboard
 func (d *DB) GetActivity24h() ([]TimelinePoint, error) {
+	return d.GetActivity24hFiltered(nil)
+}
+
+func (d *DB) GetActivity24hFiltered(allowedGroupIDs []int64) ([]TimelinePoint, error) {
 	now := time.Now()
 	cutoff := now.Add(-24 * time.Hour).Format("2006-01-02 15:04:05")
 	cutoffISO := now.Add(-24 * time.Hour).Format(time.RFC3339)
@@ -279,17 +341,27 @@ func (d *DB) GetActivity24h() ([]TimelinePoint, error) {
 		orderedKeys = append(orderedKeys, key)
 	}
 
-	query := `
+	whereClause := "WHERE (timestamp >= ? OR timestamp >= ?)"
+	var args []interface{}
+	args = append(args, cutoff, cutoffISO)
+
+	if allowedGroupIDs != nil {
+		cond, condArgs := buildClientInGroupSubquery("client_ip", allowedGroupIDs)
+		whereClause += " AND " + cond
+		args = append(args, condArgs...)
+	}
+
+	query := fmt.Sprintf(`
 		SELECT 
 			replace(substr(timestamp, 1, 13), 'T', ' ') || ':00' as hour_bucket,
 			COUNT(*) as total,
 			SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) as blocked
 		FROM dns_queries
-		WHERE timestamp >= ? OR timestamp >= ?
+		%s
 		GROUP BY hour_bucket
-	`
+	`, whereClause)
 
-	rows, err := d.db.Query(query, cutoff, cutoffISO)
+	rows, err := d.db.Query(query, args...)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
