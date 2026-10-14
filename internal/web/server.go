@@ -1,0 +1,683 @@
+package web
+
+import (
+	"embed"
+	"encoding/csv"
+	"encoding/json"
+	"fmt"
+	"io/fs"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/coorpdns/coorpdns/internal/config"
+	"github.com/coorpdns/coorpdns/internal/dns"
+	"github.com/coorpdns/coorpdns/internal/filter"
+	"github.com/coorpdns/coorpdns/internal/storage"
+)
+
+type Server struct {
+	cfg        *config.Config
+	filter     *filter.Engine
+	storage    *storage.DB
+	upstream   *dns.UpstreamResolver
+	configPath string
+	startTime  time.Time
+	staticFS   embed.FS
+}
+
+func NewServer(cfg *config.Config, filter *filter.Engine, store *storage.DB, configPath string, staticFS embed.FS) *Server {
+	return &Server{
+		cfg:        cfg,
+		filter:     filter,
+		storage:    store,
+		upstream:   dns.NewUpstreamResolver(cfg.Upstreams),
+		configPath: configPath,
+		startTime:  time.Now(),
+		staticFS:   staticFS,
+	}
+}
+
+func (s *Server) Routes() http.Handler {
+	mux := http.NewServeMux()
+
+	// Endpoint DNS-over-HTTPS (DoH) com autenticação por token para clientes remotos na nuvem
+	mux.HandleFunc("/dns-query/", s.handleDoH)
+	mux.HandleFunc("/dns-query", s.handleDoH)
+
+	// Endpoints da API REST
+	mux.HandleFunc("/api/v1/status", s.handleStatus)
+	mux.HandleFunc("/api/v1/control/toggle", s.handleToggle)
+	mux.HandleFunc("/api/v1/stats", s.handleStats)
+	mux.HandleFunc("/api/v1/logs", s.handleLogs)
+
+	// Endpoints da Aba de Relatórios (até 180 dias)
+	mux.HandleFunc("/api/v1/reports/top-domains", s.handleReportTopDomains)
+	mux.HandleFunc("/api/v1/reports/top-clients", s.handleReportTopClients)
+	mux.HandleFunc("/api/v1/reports/client-activity", s.handleReportClientActivity)
+	mux.HandleFunc("/api/v1/reports/group", s.handleReportGroup)
+	mux.HandleFunc("/api/v1/reports/timeline", s.handleReportTimeline)
+	mux.HandleFunc("/api/v1/reports/export-csv", s.handleExportCSV)
+
+	// Gerenciamento de Clientes, Grupos e Regras
+	mux.HandleFunc("/api/v1/clients", s.handleClients)
+	mux.HandleFunc("/api/v1/clients/remote", s.handleCreateRemoteClient)
+	mux.HandleFunc("/api/v1/clients/revoke", s.handleRevokeRemoteClient)
+	mux.HandleFunc("/api/v1/clients/group", s.handleAssignGroup)
+	mux.HandleFunc("/api/v1/groups", s.handleGroups)
+	mux.HandleFunc("/api/v1/groups/categories", s.handleGroupCategories)
+	mux.HandleFunc("/api/v1/categories", s.handleCategories)
+	mux.HandleFunc("/api/v1/forwarders", s.handleConditionalForwarders)
+	mux.HandleFunc("/api/v1/forwarders/", s.handleConditionalForwarders)
+	mux.HandleFunc("/api/v1/config/support", s.handleSupportConfig)
+	mux.HandleFunc("/blocked", s.handleBlockedPage)
+	mux.HandleFunc("/api/v1/rules", s.handleRules)
+	mux.HandleFunc("/api/v1/lists", s.handleLists)
+
+	// Servir Arquivos Estáticos (Vanilla UI)
+	sub, err := fs.Sub(s.staticFS, "static")
+	if err == nil {
+		mux.Handle("/", http.FileServer(http.FS(sub)))
+	} else {
+		// Fallback para disco local durante desenvolvimento
+		mux.Handle("/", http.FileServer(http.Dir("./web/static")))
+	}
+
+	return s.securityMiddleware(mux)
+}
+
+func (s *Server) securityMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 1. Cabeçalhos Globais de Segurança (OWASP A05)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+		w.Header().Set("X-XSS-Protection", "1; mode=block")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+
+		// 2. Política de CORS Segura
+		if strings.HasPrefix(r.URL.Path, "/dns-query") {
+			// RFC 8484: Endpoints DoH exigem CORS para clientes web legítimos
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept")
+		} else {
+			// Endpoints administrativos e relatórios: Apenas permitir se vier da mesma origem ou Origin explícito
+			origin := r.Header.Get("Origin")
+			if origin != "" {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			}
+		}
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// 3. Proteção contra DoS por corpo de requisição excessivo (1MB max para API)
+		if strings.HasPrefix(r.URL.Path, "/api/") && r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, 1048576) // 1MB max
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func jsonResponse(w http.ResponseWriter, status int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(data)
+}
+
+func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	rulesCount, lastUpdate := s.filter.Stats()
+	active := s.cfg.IsBlockingActive()
+	var pauseRemaining int64 = 0
+
+	if s.cfg.Server.PauseTimeout > 0 {
+		now := time.Now().Unix()
+		if now < s.cfg.Server.PauseTimeout {
+			active = false
+			pauseRemaining = s.cfg.Server.PauseTimeout - now
+		}
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"blocking_active":  active,
+		"pause_remaining":  pauseRemaining,
+		"uptime_seconds":   int64(time.Since(s.startTime).Seconds()),
+		"total_rules":      rulesCount,
+		"rules_updated_at": lastUpdate.Format(time.RFC3339),
+		"version":          "1.0.0",
+		"dns_address":      s.cfg.Server.DNSAddress,
+	})
+}
+
+func (s *Server) handleToggle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Enabled         bool  `json:"enabled"`
+		DurationSeconds int64 `json:"duration_seconds"` // ex: 300 para pausar por 5 min
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Enabled {
+		s.cfg.SetBlocking(true)
+		s.cfg.Server.PauseTimeout = 0
+	} else {
+		if req.DurationSeconds > 0 {
+			s.cfg.Server.PauseTimeout = time.Now().Unix() + req.DurationSeconds
+		} else {
+			s.cfg.SetBlocking(false)
+			s.cfg.Server.PauseTimeout = 0
+		}
+	}
+
+	s.cfg.Save(s.configPath)
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true, "blocking_active": s.cfg.IsBlockingActive()})
+}
+
+func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
+	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
+	if days <= 0 {
+		days = 1
+	}
+
+	stats, err := s.storage.GetGlobalStats(days)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, stats)
+}
+
+func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	client := r.URL.Query().Get("client")
+	domain := r.URL.Query().Get("domain")
+	status := r.URL.Query().Get("status")
+
+	logs, err := s.storage.GetRecentLogs(limit, client, domain, status)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, logs)
+}
+
+// RELATÓRIOS (até 180 dias)
+
+func (s *Server) handleReportTopDomains(w http.ResponseWriter, r *http.Request) {
+	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	status := r.URL.Query().Get("status")
+
+	items, err := s.storage.GetTopDomains(days, limit, status)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, items)
+}
+
+func (s *Server) handleReportTopClients(w http.ResponseWriter, r *http.Request) {
+	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+
+	items, err := s.storage.GetTopClients(days, limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, items)
+}
+
+func (s *Server) handleReportClientActivity(w http.ResponseWriter, r *http.Request) {
+	clientIP := r.URL.Query().Get("client_ip")
+	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
+	fromDate := r.URL.Query().Get("from")
+	toDate := r.URL.Query().Get("to")
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+
+	items, err := s.storage.GetClientDomainActivity(clientIP, days, fromDate, toDate, limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, items)
+}
+
+func (s *Server) handleReportTimeline(w http.ResponseWriter, r *http.Request) {
+	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
+	points, err := s.storage.GetTimeline(days)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, points)
+}
+
+func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
+	reportType := r.URL.Query().Get("type")
+	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
+	if days <= 0 {
+		days = 180
+	}
+
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=relatorio_%s_%ddias.csv", reportType, days))
+
+	writer := csv.NewWriter(w)
+	defer writer.Flush()
+
+	if reportType == "domains" {
+		writer.Write([]string{"Dominio", "Total de Consultas", "Consultas Bloqueadas", "Taxa de Bloqueio (%)"})
+		items, _ := s.storage.GetTopDomains(days, 500, "all")
+		for _, it := range items {
+			writer.Write([]string{
+				it.Domain,
+				strconv.FormatInt(it.TotalQueries, 10),
+				strconv.FormatInt(it.BlockedQueries, 10),
+				fmt.Sprintf("%.1f%%", it.BlockRate),
+			})
+		}
+	} else if reportType == "clients" {
+		writer.Write([]string{"IP do Cliente", "Nome", "Total de Consultas", "Consultas Bloqueadas", "Taxa de Bloqueio (%)"})
+		items, _ := s.storage.GetTopClients(days, 100)
+		for _, it := range items {
+			writer.Write([]string{
+				it.ClientIP,
+				it.ClientName,
+				strconv.FormatInt(it.TotalQueries, 10),
+				strconv.FormatInt(it.BlockedQueries, 10),
+				fmt.Sprintf("%.1f%%", it.BlockRate),
+			})
+		}
+	} else if reportType == "group" {
+		groupID, _ := strconv.ParseInt(r.URL.Query().Get("group_id"), 10, 64)
+		if groupID <= 0 {
+			groupID = 1
+		}
+		rep, _ := s.storage.GetGroupReport(groupID, days, 200)
+		writer.Write([]string{"Grupo", "Dispositivo", "IP", "Dominio", "Total de Consultas", "Bloqueadas"})
+		if rep != nil {
+			for _, dev := range rep.Devices {
+				for _, dom := range dev.Domains {
+					writer.Write([]string{
+						rep.GroupName,
+						dev.ClientName,
+						dev.ClientIP,
+						dom.Domain,
+						strconv.FormatInt(dom.TotalQueries, 10),
+						strconv.FormatInt(dom.BlockedQueries, 10),
+					})
+				}
+			}
+		}
+	} else {
+		clientIP := r.URL.Query().Get("client_ip")
+		writer.Write([]string{"Dominio", "Total de Consultas", "Bloqueadas"})
+		items, _ := s.storage.GetClientDomainActivity(clientIP, days, "", "", 500)
+		for _, it := range items {
+			writer.Write([]string{
+				it.Domain,
+				strconv.FormatInt(it.TotalQueries, 10),
+				strconv.FormatInt(it.BlockedQueries, 10),
+			})
+		}
+	}
+}
+
+func (s *Server) handleReportGroup(w http.ResponseWriter, r *http.Request) {
+	groupID, _ := strconv.ParseInt(r.URL.Query().Get("group_id"), 10, 64)
+	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
+	if groupID <= 0 {
+		groupID = 1
+	}
+	if days <= 0 {
+		days = 30
+	}
+
+	report, err := s.storage.GetGroupReport(groupID, days, 50)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, report)
+}
+
+func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "POST" {
+		var req struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			Color       string `json:"color"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid body", http.StatusBadRequest)
+			return
+		}
+		name := strings.TrimSpace(req.Name)
+		if name == "" {
+			http.Error(w, "Nome do grupo é obrigatório", http.StatusBadRequest)
+			return
+		}
+		g, err := s.storage.CreateGroup(name, req.Description, req.Color)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		jsonResponse(w, http.StatusOK, g)
+		return
+	}
+
+	groups, err := s.storage.GetGroups()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, groups)
+}
+
+func (s *Server) handleAssignGroup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		ClientIP string `json:"client_ip"`
+		GroupID  int64  `json:"group_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid body", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.storage.AssignClientToGroup(req.ClientIP, req.GroupID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+func (s *Server) handleClients(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "POST" {
+		var c storage.Client
+		if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
+			http.Error(w, "Invalid body", http.StatusBadRequest)
+			return
+		}
+		if err := s.storage.UpsertClient(&c); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		jsonResponse(w, http.StatusOK, map[string]bool{"success": true})
+		return
+	}
+
+	clients, err := s.storage.GetClients()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, clients)
+}
+
+func (s *Server) handleCreateRemoteClient(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Name    string `json:"name"`
+		Comment string `json:"comment"`
+		GroupID int64  `json:"group_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid body", http.StatusBadRequest)
+		return
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = "Dispositivo Remoto"
+	}
+
+	client, err := s.storage.CreateRemoteClient(name, req.Comment, req.GroupID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, client)
+}
+
+func (s *Server) handleRevokeRemoteClient(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid body", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.storage.RevokeRemoteClient(req.Token); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "POST" {
+		var req struct {
+			Action string `json:"action"` // "add_block", "remove_block", "add_allow", "remove_allow"
+			Rule   string `json:"rule"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid body", http.StatusBadRequest)
+			return
+		}
+
+		rule := strings.TrimSpace(req.Rule)
+		if rule == "" {
+			http.Error(w, "Rule cannot be empty", http.StatusBadRequest)
+			return
+		}
+
+		switch req.Action {
+		case "add_block":
+			s.cfg.CustomRules = append(s.cfg.CustomRules, rule)
+		case "add_allow":
+			s.cfg.AllowRules = append(s.cfg.AllowRules, rule)
+		}
+
+		s.filter.LoadRules(nil, s.cfg.CustomRules, s.cfg.AllowRules)
+		s.cfg.Save(s.configPath)
+		jsonResponse(w, http.StatusOK, map[string]bool{"success": true})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"custom_rules": s.cfg.CustomRules,
+		"allow_rules":  s.cfg.AllowRules,
+	})
+}
+
+func (s *Server) handleLists(w http.ResponseWriter, r *http.Request) {
+	jsonResponse(w, http.StatusOK, s.cfg.Blocklists)
+}
+
+func (s *Server) handleCategories(w http.ResponseWriter, r *http.Request) {
+	jsonResponse(w, http.StatusOK, filter.AvailableCategories)
+}
+
+func (s *Server) handleGroupCategories(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		groupID, _ := strconv.ParseInt(r.URL.Query().Get("group_id"), 10, 64)
+		if groupID <= 0 {
+			groupID = 1
+		}
+		rules, err := s.storage.GetGroupCategoryRules(groupID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"group_id": groupID,
+			"rules":    rules,
+		})
+		return
+	}
+
+	if r.Method == "PUT" || r.Method == "POST" {
+		var req struct {
+			GroupID int64             `json:"group_id"`
+			Rules   map[string]string `json:"rules"` // category_id -> "block" ou "allow"
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid body", http.StatusBadRequest)
+			return
+		}
+		if req.GroupID <= 0 {
+			req.GroupID = 1
+		}
+		if err := s.storage.SetGroupCategories(req.GroupID, req.Rules); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		jsonResponse(w, http.StatusOK, map[string]bool{"success": true})
+		return
+	}
+}
+
+func (s *Server) handleConditionalForwarders(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		list, err := s.storage.GetConditionalForwarders()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		jsonResponse(w, http.StatusOK, list)
+		return
+	}
+
+	if r.Method == "POST" {
+		var req struct {
+			Domain     string `json:"domain"`
+			UpstreamIP string `json:"upstream_ip"`
+			Comment    string `json:"comment"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid body", http.StatusBadRequest)
+			return
+		}
+		f, err := s.storage.CreateConditionalForwarder(req.Domain, req.UpstreamIP, req.Comment)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		jsonResponse(w, http.StatusCreated, f)
+		return
+	}
+
+	if r.Method == "DELETE" {
+		parts := strings.Split(r.URL.Path, "/")
+		if len(parts) >= 5 {
+			id, _ := strconv.ParseInt(parts[4], 10, 64)
+			if id > 0 {
+				s.storage.DeleteConditionalForwarder(id)
+				jsonResponse(w, http.StatusOK, map[string]bool{"success": true})
+				return
+			}
+		}
+		http.Error(w, "ID not provided", http.StatusBadRequest)
+		return
+	}
+}
+
+func (s *Server) handleSupportConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"block_mode":    s.cfg.Server.BlockMode,
+			"server_ip":     s.cfg.Server.ServerIP,
+			"support_email": s.cfg.Server.SupportEmail,
+			"support_phone": s.cfg.Server.SupportPhone,
+			"org_name":      s.cfg.Server.OrgName,
+		})
+		return
+	}
+
+	if r.Method == "PUT" || r.Method == "POST" {
+		var req struct {
+			BlockMode    string `json:"block_mode"`
+			ServerIP     string `json:"server_ip"`
+			SupportEmail string `json:"support_email"`
+			SupportPhone string `json:"support_phone"`
+			OrgName      string `json:"org_name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid body", http.StatusBadRequest)
+			return
+		}
+		if req.BlockMode != "" {
+			s.cfg.Server.BlockMode = req.BlockMode
+		}
+		if req.ServerIP != "" {
+			s.cfg.Server.ServerIP = req.ServerIP
+		}
+		if req.SupportEmail != "" {
+			s.cfg.Server.SupportEmail = req.SupportEmail
+		}
+		if req.SupportPhone != "" {
+			s.cfg.Server.SupportPhone = req.SupportPhone
+		}
+		if req.OrgName != "" {
+			s.cfg.Server.OrgName = req.OrgName
+		}
+		s.cfg.Save(s.configPath)
+		jsonResponse(w, http.StatusOK, map[string]bool{"success": true})
+		return
+	}
+}
+
+func (s *Server) handleBlockedPage(w http.ResponseWriter, r *http.Request) {
+	content, err := fs.ReadFile(s.staticFS, "static/blocked.html")
+	if err != nil {
+		content, err = os.ReadFile("./cmd/coorpdns/static/blocked.html")
+		if err != nil {
+			content, err = os.ReadFile("./cmd/homedns/static/blocked.html")
+			if err != nil {
+				content, err = os.ReadFile("./web/static/blocked.html")
+			}
+		}
+	}
+	if err != nil {
+		http.Error(w, "Blocked page not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write(content)
+}
+
+

@@ -1,0 +1,49 @@
+# CoorpDNS - Git Ignore Configuration
+
+# Binaries & Executables
+/coorpdns
+/coorpdns-agent
+/homedns
+/homedns-agent
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go build cache & vendoring
+/vendor/
+
+# Local Database & User State (Confidentiality / LGPD)
+/data/*.db
+/data/*.db-wal
+/data/*.db-shm
+/data/*.sqlite
+/data/*.sqlite3
+
+# Caddy Certificates & Data
+/caddy_data/
+/caddy_config/
+
+# Environment Variables & Secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.crt
+
+# IDE & OS Files
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Node & Scratch Test Files
+node_modules/
+npm-debug.log*

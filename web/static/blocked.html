@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acesso Bloqueado pela Política de Segurança | CoorpDNS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    :root {
+      --bg-dark: #090d16;
+      --bg-card: rgba(18, 24, 38, 0.85);
+      --border: rgba(255, 255, 255, 0.08);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --danger: #ef4444;
+      --danger-glow: rgba(239, 68, 68, 0.25);
+      --warning: #f59e0b;
+      --emerald: #10b981;
+      --blue: #3b82f6;
+      --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      background-image: 
+        radial-gradient(circle at 50% 15%, rgba(239, 68, 68, 0.15) 0%, transparent 60%),
+        radial-gradient(circle at 10% 80%, rgba(59, 130, 246, 0.08) 0%, transparent 50%);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+
+    .block-container {
+      width: 100%;
+      max-width: 640px;
+      background: var(--bg-card);
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 2.25rem;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+      text-align: center;
+      animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(12px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .shield-badge {
+      width: 76px;
+      height: 76px;
+      background: rgba(239, 68, 68, 0.12);
+      border: 2px solid rgba(239, 68, 68, 0.4);
+      box-shadow: 0 0 35px var(--danger-glow);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 1.5rem auto;
+      color: var(--danger);
+      font-size: 2.2rem;
+      animation: pulseAlert 2.5s infinite;
+    }
+
+    @keyframes pulseAlert {
+      0%, 100% { transform: scale(1); box-shadow: 0 0 25px var(--danger-glow); }
+      50% { transform: scale(1.05); box-shadow: 0 0 45px rgba(239, 68, 68, 0.4); }
+    }
+
+    .org-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 0.6rem;
+    }
+
+    h1 {
+      font-size: 1.7rem;
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 0.5rem;
+      line-height: 1.25;
+    }
+
+    .subtitle {
+      font-size: 0.92rem;
+      color: var(--text-muted);
+      margin-bottom: 1.75rem;
+      line-height: 1.5;
+    }
+
+    .info-card {
+      background: rgba(10, 15, 26, 0.75);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.25rem;
+      margin-bottom: 1.75rem;
+      text-align: left;
+    }
+
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.55rem 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      font-size: 0.88rem;
+    }
+
+    .info-row:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+
+    .info-label {
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .info-value {
+      font-weight: 600;
+      color: #fff;
+      text-align: right;
+    }
+
+    .domain-tag {
+      font-family: var(--font-mono);
+      color: #fca5a5;
+      background: rgba(239, 68, 68, 0.15);
+      padding: 0.2rem 0.55rem;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      word-break: break-all;
+    }
+
+    .category-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: rgba(245, 158, 11, 0.15);
+      color: #fbbf24;
+      padding: 0.25rem 0.65rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    .group-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: rgba(99, 102, 241, 0.15);
+      color: #a5b4fc;
+      padding: 0.25rem 0.65rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      border: 1px solid rgba(99, 102, 241, 0.3);
+    }
+
+    .support-box {
+      background: rgba(59, 130, 246, 0.06);
+      border: 1px solid rgba(59, 130, 246, 0.25);
+      border-radius: 14px;
+      padding: 1.25rem;
+      margin-bottom: 1.5rem;
+      text-align: left;
+    }
+
+    .support-box h3 {
+      font-size: 0.95rem;
+      color: #93c5fd;
+      margin-bottom: 0.4rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .support-box p {
+      font-size: 0.83rem;
+      color: var(--text-muted);
+      line-height: 1.45;
+      margin-bottom: 1rem;
+    }
+
+    .action-buttons {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1rem;
+      border-radius: 10px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s ease;
+      font-family: var(--font-sans);
+    }
+
+    .btn-whatsapp {
+      background: #10b981;
+      color: #fff;
+    }
+
+    .btn-whatsapp:hover {
+      background: #059669;
+      transform: translateY(-1px);
+    }
+
+    .btn-email {
+      background: #3b82f6;
+      color: #fff;
+    }
+
+    .btn-email:hover {
+      background: #2563eb;
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+    }
+
+    .footer-note {
+      font-size: 0.78rem;
+      color: rgba(148, 163, 184, 0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+    }
+
+    .copy-toast {
+      position: fixed;
+      bottom: 2rem;
+      background: #10b981;
+      color: #fff;
+      padding: 0.6rem 1.25rem;
+      border-radius: 30px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+      display: none;
+      animation: fadeIn 0.2s;
+    }
+
+    @media (max-width: 540px) {
+      .block-container {
+        padding: 1.5rem;
+      }
+      .action-buttons {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="block-container">
+    <div class="shield-badge">
+      <i class="fa-solid fa-shield-halved"></i>
+    </div>
+
+    <div class="org-tag" id="displayOrgName">
+      <i class="fa-solid fa-building-shield"></i> Política de Segurança da Rede
+    </div>
+
+    <h1>Acesso ao Site Bloqueado</h1>
+    <p class="subtitle">
+      O endereço que você tentou acessar está restrito pelas diretrizes de conformidade, segurança e controle parental desta rede.
+    </p>
+
+    <!-- Cartão com Detalhes do Bloqueio -->
+    <div class="info-card">
+      <div class="info-row">
+        <span class="info-label"><i class="fa-solid fa-globe"></i> Domínio Solicitado:</span>
+        <span class="info-value"><span class="domain-tag" id="displayBlockedDomain">exemplo-bloqueado.com</span></span>
+      </div>
+      <div class="info-row">
+        <span class="info-label"><i class="fa-solid fa-tags"></i> Categoria do Bloqueio:</span>
+        <span class="info-value"><span class="category-badge" id="displayCategoryBadge"><i class="fa-solid fa-ban"></i> Conteúdo Restrito</span></span>
+      </div>
+      <div class="info-row">
+        <span class="info-label"><i class="fa-solid fa-users"></i> Grupo do Dispositivo:</span>
+        <span class="info-value"><span class="group-badge" id="displayGroupBadge">Padrão / Geral</span></span>
+      </div>
+      <div class="info-row">
+        <span class="info-label"><i class="fa-solid fa-laptop"></i> Identificador do Aparelho:</span>
+        <span class="info-value" id="displayClientIP" style="font-family: var(--font-mono); font-size: 0.82rem;">192.168.1.x</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label"><i class="fa-regular fa-clock"></i> Data e Horário:</span>
+        <span class="info-value" id="displayTimestamp" style="font-size: 0.82rem;">--:--</span>
+      </div>
+    </div>
+
+    <!-- Caixa de Ação: Falar com o Suporte -->
+    <div class="support-box">
+      <h3><i class="fa-solid fa-headset"></i> Precisa de Acesso a este Site?</h3>
+      <p>
+        Se este site for necessário para suas atividades profissionais, estudos ou você acredita que se trata de um bloqueio indevido, solicite a liberação com a equipe de suporte:
+      </p>
+
+      <div class="action-buttons">
+        <a id="btnWhatsAppSupport" class="btn btn-whatsapp" href="#" target="_blank">
+          <i class="fa-brands fa-whatsapp"></i> Falar no WhatsApp
+        </a>
+        <a id="btnEmailSupport" class="btn btn-email" href="#">
+          <i class="fa-regular fa-envelope"></i> Solicitar por E-mail
+        </a>
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 0.75rem; justify-content: center; margin-bottom: 1.5rem;">
+      <button class="btn btn-secondary" onclick="copyIncidentDetails()" style="font-size: 0.8rem; padding: 0.5rem 0.9rem;">
+        <i class="fa-regular fa-copy"></i> Copiar Dados do Incidente
+      </button>
+      <button class="btn btn-secondary" onclick="history.back()" style="font-size: 0.8rem; padding: 0.5rem 0.9rem;">
+        <i class="fa-solid fa-arrow-left"></i> Voltar
+      </button>
+    </div>
+
+    <div class="footer-note">
+      <i class="fa-solid fa-lock"></i> Filtrado pelo <strong>CoorpDNS Enterprise Shield &amp; Compliance Engine</strong>
+    </div>
+  </div>
+
+  <div id="copyToast" class="copy-toast">Dados do bloqueio copiados para a área de transferência!</div>
+
+  <script>
+    // Dicionário de Categorias Amigáveis
+    const categoryMap = {
+      'adult': { name: 'Conteúdo Adulto / Pornografia', icon: 'fa-ban', color: '#ef4444' },
+      'gambling': { name: 'Apostas & Jogos de Azar', icon: 'fa-dice', color: '#f59e0b' },
+      'social': { name: 'Redes Sociais', icon: 'fa-share-nodes', color: '#3b82f6' },
+      'gaming': { name: 'Jogos & Games Online', icon: 'fa-gamepad', color: '#8b5cf6' },
+      'streaming': { name: 'Streaming de Vídeo & Música', icon: 'fa-film', color: '#ec4899' },
+      'p2p_torrent': { name: 'P2P, Torrents & Pirataria', icon: 'fa-magnet', color: '#64748b' },
+      'crypto': { name: 'Criptomoedas & Mineração', icon: 'fa-coins', color: '#eab308' },
+      'dating': { name: 'Relacionamentos & Encontros', icon: 'fa-heart', color: '#f43f5e' },
+      'trackers': { name: 'Rastreadores & Telemetria', icon: 'fa-eye-slash', color: '#6366f1' },
+      'ads': { name: 'Anúncios & Publicidade', icon: 'fa-bullhorn', color: '#14b8a6' },
+    };
+
+    // Extrair parâmetros da URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const domain = urlParams.get('domain') || window.location.hostname || 'site-restrito.com';
+    let category = urlParams.get('category') || '';
+    const group = urlParams.get('group') || 'Estações de Trabalho Corporativas';
+    const client = urlParams.get('client') || 'Dispositivo da Rede Local';
+
+    // Heurística de categoria caso não informada
+    if (!category) {
+      if (/bet365|betano|blaze|betfair|poker|cassino/i.test(domain)) category = 'gambling';
+      else if (/pornhub|xvideos|xhamster|onlyfans/i.test(domain)) category = 'adult';
+      else if (/tiktok|instagram|facebook|twitter|reddit/i.test(domain)) category = 'social';
+      else if (/roblox|steam|epicgames|discord|twitch/i.test(domain)) category = 'gaming';
+      else if (/netflix|youtube|disney/i.test(domain)) category = 'streaming';
+      else if (/torrent|piratebay/i.test(domain)) category = 'p2p_torrent';
+      else category = 'ads';
+    }
+
+    const catInfo = categoryMap[category] || { name: 'Política de Bloqueio', icon: 'fa-ban', color: '#ef4444' };
+
+    // Configurações padrão de suporte (podem ser substituídas via API)
+    let supportEmail = 'suporte@empresa.com.br';
+    let supportPhone = '5511999998888';
+    let orgName = 'Equipe de TI & Segurança da Informação';
+
+    // Preencher tela
+    document.getElementById('displayBlockedDomain').textContent = domain;
+    document.getElementById('displayCategoryBadge').innerHTML = `<i class="fa-solid ${catInfo.icon}"></i> ${catInfo.name}`;
+    document.getElementById('displayCategoryBadge').style.borderColor = catInfo.color;
+    document.getElementById('displayCategoryBadge').style.color = catInfo.color;
+    document.getElementById('displayCategoryBadge').style.background = `${catInfo.color}15`;
+
+    document.getElementById('displayGroupBadge').textContent = group;
+    document.getElementById('displayClientIP').textContent = client;
+    document.getElementById('displayTimestamp').textContent = new Date().toLocaleString('pt-BR');
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/[&<>"']/g, m => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+      }[m]));
+    }
+
+    // Carregar configurações reais do servidor
+    fetch('/api/v1/config/support')
+      .then(res => res.json())
+      .then(cfg => {
+        if (cfg.support_email) supportEmail = cfg.support_email;
+        if (cfg.support_phone) supportPhone = cfg.support_phone;
+        if (cfg.org_name) {
+          orgName = cfg.org_name;
+          document.getElementById('displayOrgName').innerHTML = `<i class="fa-solid fa-building-shield"></i> ${escapeHtml(orgName)}`;
+        }
+        updateActionLinks();
+      })
+      .catch(() => updateActionLinks());
+
+    function updateActionLinks() {
+      // WhatsApp
+      const waText = encodeURIComponent(`Olá! Meu acesso ao site "${domain}" (Categoria: ${catInfo.name}) foi bloqueado na rede corporativa no dispositivo ${client}. Gostaria de solicitar a análise e liberação.`);
+      document.getElementById('btnWhatsAppSupport').href = `https://wa.me/${supportPhone.replace(/\D/g, '')}?text=${waText}`;
+
+      // Email
+      const emailSubject = encodeURIComponent(`[CoorpDNS] Solicitação de Liberação de Site: ${domain}`);
+      const emailBody = encodeURIComponent(
+        `Olá equipe de suporte,\n\nSolicito a análise e liberação do domínio abaixo bloqueado pelas diretrizes corporativas:\n\n` +
+        `• Domínio: ${domain}\n` +
+        `• Categoria Bloqueada: ${catInfo.name}\n` +
+        `• Grupo do Aparelho: ${group}\n` +
+        `• Dispositivo/IP: ${client}\n` +
+        `• Data/Hora: ${new Date().toLocaleString('pt-BR')}\n\n` +
+        `Justificativa para liberação:\n`
+      );
+      document.getElementById('btnEmailSupport').href = `mailto:${supportEmail}?subject=${emailSubject}&body=${emailBody}`;
+    }
+
+    function copyIncidentDetails() {
+      const text = `=== INCIDENTE DE BLOQUEIO COORPDNS ===\nDomínio: ${domain}\nCategoria: ${catInfo.name}\nGrupo: ${group}\nDispositivo: ${client}\nData/Hora: ${new Date().toISOString()}\n`;
+      navigator.clipboard.writeText(text).then(() => {
+        const toast = document.getElementById('copyToast');
+        toast.style.display = 'block';
+        setTimeout(() => toast.style.display = 'none', 3000);
+      });
+    }
+  </script>
+</body>
+</html>

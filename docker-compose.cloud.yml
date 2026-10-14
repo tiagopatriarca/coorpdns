@@ -1,0 +1,48 @@
+# ======================================================================
+# CoorpDNS Cloud - Deploy Corporativo em VPS (AWS, GCP, Azure, Oracle, Hetzner)
+# Acesso Restrito Exclusivamente a Clientes com Token Autorizado
+# ======================================================================
+
+version: '3.8'
+
+services:
+  # CoorpDNS Core (Backend em Go + SQLite + Motor de Filtragem)
+  coorpdns:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: coorpdns:latest
+    container_name: coorpdns-cloud
+    restart: unless-stopped
+    environment:
+      - TZ=America/Sao_Paulo
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    # IMPORTANTE: A porta 53 NÃO é exposta para a internet pública!
+    # Isso impede que invasores usem seu servidor como "Open Resolver" para ataques DDoS.
+    expose:
+      - "8080"
+    networks:
+      - dnsnet
+
+  # Caddy Proxy Reverso: HTTPS Automático (Let's Encrypt)
+  caddy:
+    image: caddy:2-alpine
+    container_name: coorpdns-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"    # HTTP para desafio Let's Encrypt (redireciona para HTTPS)
+      - "443:443"  # HTTPS / DoH seguro com TLS moderno
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy_data:/data
+      - ./caddy_config:/config
+    depends_on:
+      - coorpdns
+    networks:
+      - dnsnet
+
+networks:
+  dnsnet:
+    driver: bridge

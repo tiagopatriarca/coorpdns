@@ -1,0 +1,17 @@
+# Substitua "dns.meudominio.com" pelo seu domínio ou subdomínio real apontado para a VPS
+dns.meudominio.com {
+    # TLS automático gerenciado pelo Caddy via Let's Encrypt / ZeroSSL
+
+    # Encaminha todo o tráfego DoH e painel para o CoorpDNS
+    reverse_proxy coorpdns:8080
+
+    # Compactação automática
+    encode gzip zstd
+
+    # Headers de segurança
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+    }
+}
