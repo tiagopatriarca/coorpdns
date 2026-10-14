@@ -3,13 +3,11 @@ package main
 import (
 	"embed"
 	"flag"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/coorpdns/coorpdns/internal/config"
 	"github.com/coorpdns/coorpdns/internal/dns"
