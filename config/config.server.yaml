@@ -1,0 +1,40 @@
+server:
+  dns_address: ":53"
+  web_address: ":8080"
+  blocking_on: true
+  block_ttl: 10
+  pause_timeout: 0
+  block_mode: "block_page"
+  server_ip: "187.77.46.13"
+  org_name: "TI Plus - Segurança da Informação"
+  support_email: "patriarca.info@gmail.com"
+  support_phone: "5511999998888"
+
+upstreams:
+  - "https://cloudflare-dns.com/dns-query"
+  - "https://dns.quad9.net/dns-query"
+  - "tls://1.1.1.1:853"
+  - "1.1.1.1:53"
+
+storage:
+  db_path: "./data/coorpdns.db"
+  history_days: 180
+  raw_retention_days: 14
+
+blocklists:
+  - name: "OISD Basic (Leve e Seguro)"
+    url: "https://small.oisd.nl"
+    enabled: true
+  - name: "StevenBlack Unified Hosts (Adware + Malware)"
+    url: "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
+    enabled: true
+  - name: "HaGeZi Multi Light"
+    url: "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/light.txt"
+    enabled: true
+
+custom_rules:
+  - "||tiktok.com^"
+  - "||ads.bet365.com^"
+
+allow_rules:
+  - "@@||analytics.google.com^"

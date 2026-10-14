@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  coorpdns:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: coorpdns:latest
+    container_name: coorpdns
+    restart: unless-stopped
+    environment:
+      - TZ=America/Sao_Paulo
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+      - ./downloads:/app/downloads:ro
+    expose:
+      - "8080"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.coorpdns.rule=Host(`dns.tiplus.inf.br`)"
+      - "traefik.http.routers.coorpdns.entrypoints=websecure"
+      - "traefik.http.routers.coorpdns.tls.certresolver=letsencrypt"
+      - "traefik.http.services.coorpdns.loadbalancer.server.port=8080"

@@ -19,6 +19,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./config:/app/config
+      - ./downloads:/app/downloads:ro
     cap_add:
       - NET_ADMIN
       - NET_BIND_SERVICE

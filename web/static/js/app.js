@@ -782,11 +782,25 @@ function setupClientModal() {
 
         const origin = window.location.origin;
         const dohUrl = `${origin}/dns-query/${client.auth_token}`;
-        const agentCmd = `coorpdns-agent -server ${origin} -token ${client.auth_token}`;
+        const agentCmd = `coorpdns-agent.exe -server ${origin} -token ${client.auth_token}`;
+        const psInstallCmd = `irm ${origin}/install.ps1?token=${client.auth_token} | iex`;
+        const msiInstallCmd = `msiexec /i "${origin}/downloads/coorpdns-agent.msi" TOKEN="${client.auth_token}" /qn`;
 
         document.getElementById('displayRemoteToken').value = client.auth_token;
         document.getElementById('displayRemoteDoHUrl').value = dohUrl;
         document.getElementById('displayAgentCommand').value = agentCmd;
+
+        const elPs = document.getElementById('displayPsInstallCommand');
+        if (elPs) elPs.value = psInstallCmd;
+
+        const elMsi = document.getElementById('displayMsiInstallCommand');
+        if (elMsi) elMsi.value = msiInstallCmd;
+
+        const btnMsi = document.getElementById('btnDownloadMsi');
+        if (btnMsi) btnMsi.href = `${origin}/downloads/coorpdns-agent.msi`;
+
+        const btnExe = document.getElementById('btnDownloadExe');
+        if (btnExe) btnExe.href = `${origin}/downloads/coorpdns-agent.exe`;
 
         document.getElementById('remoteCreateForm').classList.add('hidden');
         document.getElementById('remoteResultSection').classList.remove('hidden');
@@ -795,6 +809,33 @@ function setupClientModal() {
         loadGroups();
       } catch (err) {
         alert('Erro ao gerar cliente remoto: ' + err.message);
+      }
+    });
+  }
+
+  // Ações de Cópia dos Comandos de Instalação
+  const btnCopyPs = document.getElementById('btnCopyPsInstall');
+  if (btnCopyPs) {
+    btnCopyPs.addEventListener('click', () => {
+      const input = document.getElementById('displayPsInstallCommand');
+      if (input && input.value) {
+        navigator.clipboard.writeText(input.value).then(() => {
+          btnCopyPs.textContent = '✅ Copiado!';
+          setTimeout(() => { btnCopyPs.textContent = '📋 Copiar'; }, 2000);
+        });
+      }
+    });
+  }
+
+  const btnCopyMsi = document.getElementById('btnCopyMsiInstall');
+  if (btnCopyMsi) {
+    btnCopyMsi.addEventListener('click', () => {
+      const input = document.getElementById('displayMsiInstallCommand');
+      if (input && input.value) {
+        navigator.clipboard.writeText(input.value).then(() => {
+          btnCopyMsi.textContent = '✅ Copiado!';
+          setTimeout(() => { btnCopyMsi.textContent = '📋 Copiar'; }, 2000);
+        });
       }
     });
   }

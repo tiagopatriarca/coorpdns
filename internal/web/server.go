@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -75,6 +76,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/blocked", s.handleBlockedPage)
 	mux.HandleFunc("/api/v1/rules", s.handleRules)
 	mux.HandleFunc("/api/v1/lists", s.handleLists)
+
+	// Downloads de Agentes e Instaladores Windows (.msi, .exe)
+	mux.HandleFunc("/downloads/", s.handleDownloads)
+	mux.HandleFunc("/install.ps1", s.handleInstallScript)
 
 	// Servir Arquivos Estáticos (Vanilla UI)
 	sub, err := fs.Sub(s.staticFS, "static")
@@ -678,6 +683,97 @@ func (s *Server) handleBlockedPage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	w.Write(content)
+}
+
+func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
+	filename := strings.TrimPrefix(r.URL.Path, "/downloads/")
+	filename = filepath.Base(filename)
+	if filename == "" || filename == "." {
+		http.Error(w, "Arquivo não especificado", http.StatusBadRequest)
+		return
+	}
+
+	searchPaths := []string{
+		filepath.Join("./downloads", filename),
+		filepath.Join("/app/downloads", filename),
+		filepath.Join("./data/downloads", filename),
+		filepath.Join("C:/Users/DATEN/.gemini/antigravity-ide/scratch/coorpdns-client", filename),
+	}
+
+	var filePath string
+	for _, p := range searchPaths {
+		if _, err := os.Stat(p); err == nil {
+			filePath = p
+			break
+		}
+	}
+
+	if filePath == "" {
+		http.Error(w, fmt.Sprintf("Arquivo %s ainda não disponível no servidor", filename), http.StatusNotFound)
+		return
+	}
+
+	if strings.HasSuffix(filename, ".msi") {
+		w.Header().Set("Content-Type", "application/x-msi")
+	} else if strings.HasSuffix(filename, ".exe") {
+		w.Header().Set("Content-Type", "application/vnd.microsoft.portable-executable")
+	} else {
+		w.Header().Set("Content-Type", "application/octet-stream")
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	http.ServeFile(w, r, filePath)
+}
+
+func (s *Server) handleInstallScript(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	serverURL := "https://" + r.Host
+	if r.TLS == nil && !strings.HasPrefix(r.Host, "localhost") {
+		if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+			serverURL = proto + "://" + r.Host
+		}
+	}
+
+	script := fmt.Sprintf(`# CoorpDNS Windows Enterprise Silent Installer
+$ErrorActionPreference = "Stop"
+$Server = "%s"
+$Token = "%s"
+$InstallDir = "$env:ProgramFiles\CoorpDNS"
+
+Write-Host "=================================================" -ForegroundColor Cyan
+Write-Host "  Instalando CoorpDNS Endpoint Shield..." -ForegroundColor Cyan
+Write-Host "=================================================" -ForegroundColor Cyan
+
+if (-not (Test-Path $InstallDir)) {
+    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+}
+
+Write-Host "[1/4] Baixando coorpdns-agent.exe..." -ForegroundColor Yellow
+$AgentPath = "$InstallDir\coorpdns-agent.exe"
+Invoke-WebRequest -Uri "$Server/downloads/coorpdns-agent.exe" -OutFile $AgentPath -UseBasicParsing
+
+Write-Host "[2/4] Registrando inicializacao automatica com o Windows..." -ForegroundColor Yellow
+$Action = New-ScheduledTaskAction -Execute "$AgentPath" -Argument "-server $Server -token $Token"
+$Trigger = New-ScheduledTaskTrigger -AtStartup
+$Principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+$Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit 0
+Register-ScheduledTask -TaskName "CoorpDNS_Agent" -Action $Action -Trigger $Trigger -Principal $Principal -Settings $Settings -Force | Out-Null
+
+Write-Host "[3/4] Iniciando servico CoorpDNS..." -ForegroundColor Yellow
+Stop-Process -Name "coorpdns-agent" -Force -ErrorAction SilentlyContinue
+Start-Process -FilePath "$AgentPath" -ArgumentList "-server $Server -token $Token" -WindowStyle Hidden
+
+Write-Host "[4/4] Configurando DNS para 127.0.0.1 (CoorpDNS)..." -ForegroundColor Yellow
+Start-Sleep -Seconds 2
+Get-NetAdapter | Where-Object Status -eq "Up" | Set-DnsClientServerAddress -ServerAddresses ("127.0.0.1")
+
+Write-Host "=================================================" -ForegroundColor Green
+Write-Host "  OK: CoorpDNS instalado e protegido com sucesso!" -ForegroundColor Green
+Write-Host "=================================================" -ForegroundColor Green
+`, serverURL, token)
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(script))
 }
 
 
