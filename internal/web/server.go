@@ -591,7 +591,7 @@ func (s *Server) handleClients(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid body", http.StatusBadRequest)
 			return
 		}
-		if u.Role != "admin" && c.GroupID != nil && !containsInt64(u.AllowedGroups, *c.GroupID) {
+		if u.Role != "admin" && c.GroupID > 0 && !containsInt64(u.AllowedGroups, c.GroupID) {
 			http.Error(w, "Acesso negado para o grupo informado", http.StatusForbidden)
 			return
 		}
