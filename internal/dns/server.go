@@ -213,9 +213,20 @@ func (s *Server) buildSinkholeResponse(req *dns.Msg, q dns.Question, matchedRule
 
 	targetIPv4 := net.ParseIP("0.0.0.0")
 	// Se modo de página de bloqueio estiver ativo e tiver IP configurado, direciona para o servidor
-	if s.cfg.Server.BlockMode == "block_page" && s.cfg.Server.ServerIP != "" {
-		if parsed := net.ParseIP(s.cfg.Server.ServerIP); parsed != nil {
+	if s.cfg.Server.BlockMode == "block_page" {
+		serverHost := s.cfg.Server.ServerIP
+		serverHost = strings.TrimPrefix(serverHost, "https://")
+		serverHost = strings.TrimPrefix(serverHost, "http://")
+		if idx := strings.Index(serverHost, "/"); idx != -1 {
+			serverHost = serverHost[:idx]
+		}
+		if idx := strings.Index(serverHost, ":"); idx != -1 {
+			serverHost = serverHost[:idx]
+		}
+		if parsed := net.ParseIP(serverHost); parsed != nil {
 			targetIPv4 = parsed
+		} else {
+			targetIPv4 = net.ParseIP("187.77.46.13")
 		}
 	}
 

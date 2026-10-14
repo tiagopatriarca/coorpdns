@@ -22,3 +22,6 @@ services:
       - "traefik.http.routers.coorpdns.entrypoints=websecure"
       - "traefik.http.routers.coorpdns.tls.certresolver=letsencrypt"
       - "traefik.http.services.coorpdns.loadbalancer.server.port=8080"
+      - "traefik.http.routers.coorpdns-blocked.rule=HostRegexp(`{any:.+}`)"
+      - "traefik.http.routers.coorpdns-blocked.entrypoints=web"
+      - "traefik.http.routers.coorpdns-blocked.service=coorpdns"

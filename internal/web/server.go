@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -126,6 +127,18 @@ func (s *Server) securityMiddleware(next http.Handler) http.Handler {
 		// 3. Proteção contra DoS por corpo de requisição excessivo (1MB max para API)
 		if strings.HasPrefix(r.URL.Path, "/api/") && r.Body != nil {
 			r.Body = http.MaxBytesReader(w, r.Body, 1048576) // 1MB max
+		}
+
+		// 4. Interceptação de domínios bloqueados: se o navegador for direcionado para o IP do servidor
+		host := r.Host
+		if idx := strings.Index(host, ":"); idx != -1 {
+			host = host[:idx]
+		}
+		if host != "" && host != "dns.tiplus.inf.br" && host != "localhost" && host != "127.0.0.1" && !strings.HasPrefix(host, "192.168.") && !strings.HasPrefix(host, "10.") && !strings.HasPrefix(host, "172.") {
+			cat := s.filter.CategorizeDomain(host)
+			redirectURL := fmt.Sprintf("https://dns.tiplus.inf.br/blocked?domain=%s&category=%s", url.QueryEscape(host), url.QueryEscape(cat))
+			http.Redirect(w, r, redirectURL, http.StatusFound)
+			return
 		}
 
 		next.ServeHTTP(w, r)

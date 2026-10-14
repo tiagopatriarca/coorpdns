@@ -78,13 +78,14 @@ func (s *Server) handleDoH(w http.ResponseWriter, r *http.Request) {
 	domain := filter.CleanDomain(qname)
 	qtypeStr := dns.TypeToString[q.Qtype]
 
-	// 4. Checagem de Bloqueio / Sinkhole
+	// 4. Checagem de Bloqueio / Sinkhole com categorias por grupo
 	isBlocking := s.cfg.IsBlockingActive() && client.BlockEnabled
 	blocked := false
 	matchedRule := ""
 
 	if isBlocking {
-		blocked, matchedRule = s.filter.Check(domain)
+		groupRules, _ := s.storage.GetGroupCategoryRules(client.GroupID)
+		blocked, matchedRule = s.filter.CheckWithGroupCategories(domain, groupRules)
 	}
 
 	var respMsg *dns.Msg
@@ -96,15 +97,38 @@ func (s *Server) handleDoH(w http.ResponseWriter, r *http.Request) {
 		respMsg.Authoritative = true
 		respMsg.Rcode = dns.RcodeSuccess
 
+		ttl := uint32(s.cfg.Server.BlockTTL)
+		if ttl == 0 {
+			ttl = 10
+		}
+
 		header := dns.RR_Header{
 			Name:   q.Name,
 			Rrtype: q.Qtype,
 			Class:  dns.ClassINET,
-			Ttl:    10,
+			Ttl:    ttl,
+		}
+
+		targetIPv4 := net.ParseIP("0.0.0.0")
+		if s.cfg.Server.BlockMode == "block_page" {
+			serverHost := s.cfg.Server.ServerIP
+			serverHost = strings.TrimPrefix(serverHost, "https://")
+			serverHost = strings.TrimPrefix(serverHost, "http://")
+			if idx := strings.Index(serverHost, "/"); idx != -1 {
+				serverHost = serverHost[:idx]
+			}
+			if idx := strings.Index(serverHost, ":"); idx != -1 {
+				serverHost = serverHost[:idx]
+			}
+			if parsed := net.ParseIP(serverHost); parsed != nil {
+				targetIPv4 = parsed
+			} else {
+				targetIPv4 = net.ParseIP("187.77.46.13")
+			}
 		}
 
 		if q.Qtype == dns.TypeA {
-			respMsg.Answer = append(respMsg.Answer, &dns.A{Hdr: header, A: net.ParseIP("0.0.0.0")})
+			respMsg.Answer = append(respMsg.Answer, &dns.A{Hdr: header, A: targetIPv4})
 		} else if q.Qtype == dns.TypeAAAA {
 			respMsg.Answer = append(respMsg.Answer, &dns.AAAA{Hdr: header, AAAA: net.ParseIP("::")})
 		}
