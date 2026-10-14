@@ -407,3 +407,45 @@ func (d *DB) ChangePassword(userID int64, oldPassword, newPassword string) error
 	_, err = d.db.Exec("UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?", newHash, userID)
 	return err
 }
+
+// buildGroupFilterClause gera uma cláusula IN (?) para filtrar IDs de grupos
+func buildGroupFilterClause(column string, groupIDs []int64) (string, []interface{}) {
+	if len(groupIDs) == 0 {
+		return "1=0", nil
+	}
+	placeholders := make([]string, len(groupIDs))
+	args := make([]interface{}, len(groupIDs))
+	for i, id := range groupIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	return fmt.Sprintf("%s IN (%s)", column, strings.Join(placeholders, ",")), args
+}
+
+// buildClientInGroupSubquery gera a subquery para filtrar consultas DNS de clientes que pertencem aos grupos permitidos
+func buildClientInGroupSubquery(column string, groupIDs []int64) (string, []interface{}) {
+	if len(groupIDs) == 0 {
+		return "1=0", nil
+	}
+	placeholders := make([]string, len(groupIDs))
+	args := make([]interface{}, len(groupIDs))
+	for i, id := range groupIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	inClause := strings.Join(placeholders, ",")
+
+	cond := fmt.Sprintf(`%s IN (
+		SELECT ip FROM clients WHERE group_id IN (%s) AND status = 'active'
+		UNION
+		SELECT auth_token FROM clients WHERE group_id IN (%s) AND status = 'active' AND auth_token != ''
+		UNION
+		SELECT 'remote-' || substr(auth_token, 1, 10) FROM clients WHERE group_id IN (%s) AND status = 'active' AND auth_token != ''
+	)`, column, inClause, inClause, inClause)
+
+	var allArgs []interface{}
+	allArgs = append(allArgs, args...)
+	allArgs = append(allArgs, args...)
+	allArgs = append(allArgs, args...)
+	return cond, allArgs
+}
