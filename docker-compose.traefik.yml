@@ -23,7 +23,7 @@ services:
       - "traefik.http.routers.coorpdns.tls.certresolver=letsencrypt"
       - "traefik.http.routers.coorpdns.priority=100"
       - "traefik.http.services.coorpdns.loadbalancer.server.port=8080"
-      - "traefik.http.routers.coorpdns-blocked.rule=HostRegexp(`{any:.+}`)"
+      - "traefik.http.routers.coorpdns-blocked.rule=HostRegexp(`^.+$`)"
       - "traefik.http.routers.coorpdns-blocked.entrypoints=web,websecure"
       - "traefik.http.routers.coorpdns-blocked.tls=true"
       - "traefik.http.routers.coorpdns-blocked.priority=1"
