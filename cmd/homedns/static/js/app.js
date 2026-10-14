@@ -1677,7 +1677,7 @@ function setupAuthControls() {
       } finally {
         if (btnLoginSubmit) {
           btnLoginSubmit.disabled = false;
-          btnLoginSubmit.innerHTML = `<span>Entrar no Sistema</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>`;
+          btnLoginSubmit.innerHTML = `<span>Entrar no Sistema</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 18px; height: 18px; flex-shrink: 0;"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>`;
         }
       }
     });

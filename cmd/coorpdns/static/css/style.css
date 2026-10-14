@@ -251,6 +251,28 @@ body {
   transition: var(--transition);
 }
 
+.btn svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.btn-block {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  height: 44px;
+  font-size: 0.95rem;
+  white-space: nowrap;
+  margin-top: 1.25rem;
+}
+
+.btn-block span {
+  white-space: nowrap;
+}
+
 .btn-primary {
   background: linear-gradient(135deg, #10b981 0%, #059669 100%);
   color: #fff;
