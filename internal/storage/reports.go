@@ -303,16 +303,34 @@ func (d *DB) GetGroupReport(groupID int64, days int, maxDomainsPerDevice int) (*
 	if err != nil {
 		return nil, err
 	}
-	defer clientRows.Close()
+
+	type clientEntry struct {
+		ip       string
+		name     string
+		isRemote bool
+	}
+	var clientsList []clientEntry
 
 	for clientRows.Next() {
-		var dev GroupDeviceActivity
+		var ip, name string
 		var isRemoteVal int
-		if err := clientRows.Scan(&dev.ClientIP, &dev.ClientName, &isRemoteVal); err != nil {
-			continue
+		if err := clientRows.Scan(&ip, &name, &isRemoteVal); err == nil {
+			clientsList = append(clientsList, clientEntry{
+				ip:       ip,
+				name:     name,
+				isRemote: isRemoteVal == 1,
+			})
 		}
-		dev.IsRemote = isRemoteVal == 1
-		dev.Domains = []ClientDomainActivityItem{}
+	}
+	clientRows.Close()
+
+	for _, c := range clientsList {
+		dev := GroupDeviceActivity{
+			ClientIP:   c.ip,
+			ClientName: c.name,
+			IsRemote:   c.isRemote,
+			Domains:    []ClientDomainActivityItem{},
+		}
 
 		// 3. Busca os sites que este dispositivo específico acessou no período
 		domRows, err := d.db.Query(`

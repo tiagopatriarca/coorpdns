@@ -48,6 +48,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // Atualização periódica automática
   setInterval(refreshStatus, 3000);
   setInterval(refreshDashboard, 10000);
+  setInterval(() => {
+    if (state.currentTab === 'logs') {
+      loadLiveLogs();
+    }
+  }, 2500);
 });
 
 // ==========================================================

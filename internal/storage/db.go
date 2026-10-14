@@ -75,13 +75,16 @@ func NewDB(dbPath string, historyDays, rawDays int) (*DB, error) {
 		}
 	}
 
-	dsn := fmt.Sprintf("%s?_journal_mode=WAL&_synchronous=NORMAL&_timeout=5000", dbPath)
+	dsn := fmt.Sprintf("%s?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=10000&_timeout=10000", dbPath)
 	sqlDB, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, err
 	}
 
-	sqlDB.SetMaxOpenConns(1) // SQLite works best with 1 writer connection in WAL mode
+	// SQLite em WAL mode suporta múltiplos leitores simultâneos sem contenção
+	sqlDB.SetMaxOpenConns(25)
+	sqlDB.SetMaxIdleConns(10)
+	sqlDB.SetConnMaxLifetime(10 * time.Minute)
 
 	d := &DB{
 		db:          sqlDB,
