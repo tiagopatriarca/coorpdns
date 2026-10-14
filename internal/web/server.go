@@ -134,7 +134,7 @@ func (s *Server) securityMiddleware(next http.Handler) http.Handler {
 		if idx := strings.Index(host, ":"); idx != -1 {
 			host = host[:idx]
 		}
-		if host != "" && host != "dns.tiplus.inf.br" && host != "localhost" && host != "127.0.0.1" && !strings.HasPrefix(host, "192.168.") && !strings.HasPrefix(host, "10.") && !strings.HasPrefix(host, "172.") {
+		if host != "" && host != "dns.tiplus.inf.br" && host != "187.77.46.13" && host != "localhost" && host != "127.0.0.1" && !strings.HasPrefix(host, "192.168.") && !strings.HasPrefix(host, "10.") && !strings.HasPrefix(host, "172.") {
 			cat := s.filter.CategorizeDomain(host)
 			redirectURL := fmt.Sprintf("https://dns.tiplus.inf.br/blocked?domain=%s&category=%s", url.QueryEscape(host), url.QueryEscape(cat))
 			http.Redirect(w, r, redirectURL, http.StatusFound)
