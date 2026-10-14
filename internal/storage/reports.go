@@ -257,6 +257,60 @@ func (d *DB) GetTimeline(days int) ([]TimelinePoint, error) {
 	return points, nil
 }
 
+// Série temporal horária das últimas 24 horas para o gráfico do dashboard
+func (d *DB) GetActivity24h() ([]TimelinePoint, error) {
+	now := time.Now()
+	cutoff := now.Add(-24 * time.Hour).Format("2006-01-02 15:04:05")
+	cutoffISO := now.Add(-24 * time.Hour).Format(time.RFC3339)
+
+	buckets := make(map[string]*TimelinePoint)
+	var orderedKeys []string
+
+	for i := 23; i >= 0; i-- {
+		t := now.Add(-time.Duration(i) * time.Hour)
+		key := t.Format("2006-01-02 15:00")
+		label := t.Format("15:00")
+		p := &TimelinePoint{
+			Date:           label,
+			TotalQueries:   0,
+			BlockedQueries: 0,
+		}
+		buckets[key] = p
+		orderedKeys = append(orderedKeys, key)
+	}
+
+	query := `
+		SELECT 
+			replace(substr(timestamp, 1, 13), 'T', ' ') || ':00' as hour_bucket,
+			COUNT(*) as total,
+			SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) as blocked
+		FROM dns_queries
+		WHERE timestamp >= ? OR timestamp >= ?
+		GROUP BY hour_bucket
+	`
+
+	rows, err := d.db.Query(query, cutoff, cutoffISO)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var hr string
+			var total, blocked int64
+			if err := rows.Scan(&hr, &total, &blocked); err == nil {
+				if p, ok := buckets[hr]; ok {
+					p.TotalQueries = total
+					p.BlockedQueries = blocked
+				}
+			}
+		}
+	}
+
+	var results []TimelinePoint
+	for _, k := range orderedKeys {
+		results = append(results, *buckets[k])
+	}
+	return results, nil
+}
+
 // Relatório 4: Relatório por Grupo de Dispositivos (Dispositivos do grupo e os sites que cada um acessou no período)
 type GroupDeviceActivity struct {
 	ClientIP       string                     `json:"client_ip"`

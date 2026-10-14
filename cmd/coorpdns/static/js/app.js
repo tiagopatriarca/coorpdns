@@ -265,57 +265,120 @@ async function loadQuickClients() {
 
 async function renderTimelineChart() {
   try {
-    const res = await fetch(`${API_BASE}/api/v1/reports/timeline?days=30`);
+    const res = await fetch(`${API_BASE}/api/v1/reports/timeline?hours=24`);
     if (!res.ok) return;
-    const points = await res.json();
+    let points = await res.json();
     const svg = document.getElementById('timelineSvg');
+    if (!svg) return;
+
     if (!points || points.length === 0) {
-      svg.innerHTML = '<text x="450" y="120" text-anchor="middle" fill="#64748b" font-size="14">Aguardando dados de tráfego histórico...</text>';
+      svg.innerHTML = '<text x="450" y="120" text-anchor="middle" fill="#64748b" font-size="13">Aguardando dados de consultas DNS...</text>';
       return;
     }
 
     const width = 900;
     const height = 240;
-    const padding = 30;
+    const paddingLeft = 45;
+    const paddingRight = 20;
+    const paddingTop = 25;
+    const paddingBottom = 35;
+    const plotWidth = width - paddingLeft - paddingRight;
+    const plotHeight = height - paddingTop - paddingBottom;
 
-    const maxVal = Math.max(...points.map(p => p.total_queries), 10);
-    const stepX = (width - padding * 2) / Math.max(points.length - 1, 1);
+    const maxQueries = Math.max(...points.map(p => p.total_queries), 5);
+    // Margem superior de 15% para as curvas não baterem no topo
+    const maxVal = Math.ceil(maxQueries * 1.15);
+    const stepX = plotWidth / Math.max(points.length - 1, 1);
 
-    const totalPoints = [];
-    const blockedPoints = [];
+    const totalCoords = [];
+    const blockedCoords = [];
+    let circleNodes = '';
 
     points.forEach((p, idx) => {
-      const x = padding + idx * stepX;
-      const yTotal = height - padding - (p.total_queries / maxVal) * (height - padding * 2);
-      const yBlocked = height - padding - (p.blocked_queries / maxVal) * (height - padding * 2);
-      totalPoints.push(`${x},${yTotal}`);
-      blockedPoints.push(`${x},${yBlocked}`);
+      const x = paddingLeft + idx * stepX;
+      const yTotal = paddingTop + plotHeight - (p.total_queries / maxVal) * plotHeight;
+      const yBlocked = paddingTop + plotHeight - (p.blocked_queries / maxVal) * plotHeight;
+      totalCoords.push({ x, y: yTotal, q: p.total_queries, date: p.date });
+      blockedCoords.push({ x, y: yBlocked, q: p.blocked_queries, date: p.date });
+
+      if (p.total_queries > 0) {
+        circleNodes += `
+          <circle cx="${x}" cy="${yTotal}" r="4" fill="#10b981" stroke="#090d16" stroke-width="2">
+            <title>${p.date} - Total: ${p.total_queries} consultas</title>
+          </circle>
+        `;
+      }
+      if (p.blocked_queries > 0) {
+        circleNodes += `
+          <circle cx="${x}" cy="${yBlocked}" r="3.5" fill="#ef4444" stroke="#090d16" stroke-width="2">
+            <title>${p.date} - Bloqueadas: ${p.blocked_queries}</title>
+          </circle>
+        `;
+      }
     });
 
-    const totalPath = `M ${totalPoints.join(' L ')}`;
-    const blockedPath = `M ${blockedPoints.join(' L ')}`;
+    const baselineY = paddingTop + plotHeight;
+    const totalLine = totalCoords.map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ');
+    const totalArea = `${totalLine} L ${totalCoords[totalCoords.length - 1].x.toFixed(1)},${baselineY} L ${totalCoords[0].x.toFixed(1)},${baselineY} Z`;
 
-    // Monta SVG polilinha com gradientes suaves
+    const blockedLine = blockedCoords.map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ');
+    const blockedArea = `${blockedLine} L ${blockedCoords[blockedCoords.length - 1].x.toFixed(1)},${baselineY} L ${blockedCoords[0].x.toFixed(1)},${baselineY} Z`;
+
+    // Rótulos do Eixo X (a cada 3 ou 4 horas)
+    let xLabels = '';
+    const labelStep = Math.max(Math.floor(points.length / 7), 1);
+    points.forEach((p, idx) => {
+      if (idx % labelStep === 0 || idx === points.length - 1) {
+        const x = paddingLeft + idx * stepX;
+        xLabels += `<text x="${x}" y="${height - 10}" text-anchor="middle" fill="#64748b" font-size="11" font-family="sans-serif">${p.date}</text>`;
+      }
+    });
+
+    // Rótulos do Eixo Y (Máximo, Médio, Zero)
+    const midVal = Math.round(maxVal / 2);
+    const midY = paddingTop + plotHeight / 2;
+
     svg.innerHTML = `
       <defs>
         <linearGradient id="gradEmerald" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#10b981" stop-opacity="0.4"/>
+          <stop offset="0%" stop-color="#10b981" stop-opacity="0.35"/>
           <stop offset="100%" stop-color="#10b981" stop-opacity="0.0"/>
         </linearGradient>
+        <linearGradient id="gradRed" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#ef4444" stop-opacity="0.25"/>
+          <stop offset="100%" stop-color="#ef4444" stop-opacity="0.0"/>
+        </linearGradient>
       </defs>
-      <!-- Linhas de grade sutis -->
-      <line x1="${padding}" y1="${padding}" x2="${width - padding}" y2="${padding}" stroke="rgba(255,255,255,0.05)" />
-      <line x1="${padding}" y1="${height/2}" x2="${width - padding}" y2="${height/2}" stroke="rgba(255,255,255,0.05)" />
-      <line x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}" stroke="rgba(255,255,255,0.1)" />
 
-      <!-- Linhas de dados -->
-      <path d="${totalPath}" fill="none" stroke="#10b981" stroke-width="3" stroke-linecap="round"/>
-      <path d="${blockedPath}" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-dasharray="4 2"/>
+      <!-- Linhas de Grade Horizontais -->
+      <line x1="${paddingLeft}" y1="${paddingTop}" x2="${width - paddingRight}" y2="${paddingTop}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="4 4" />
+      <text x="${paddingLeft - 8}" y="${paddingTop + 4}" text-anchor="end" fill="#64748b" font-size="10">${maxVal}</text>
+
+      <line x1="${paddingLeft}" y1="${midY}" x2="${width - paddingRight}" y2="${midY}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="4 4" />
+      <text x="${paddingLeft - 8}" y="${midY + 4}" text-anchor="end" fill="#64748b" font-size="10">${midVal}</text>
+
+      <line x1="${paddingLeft}" y1="${baselineY}" x2="${width - paddingRight}" y2="${baselineY}" stroke="rgba(255,255,255,0.12)" />
+      <text x="${paddingLeft - 8}" y="${baselineY + 4}" text-anchor="end" fill="#64748b" font-size="10">0</text>
+
+      <!-- Áreas Preenchidas -->
+      <path d="${totalArea}" fill="url(#gradEmerald)"/>
+      <path d="${blockedArea}" fill="url(#gradRed)"/>
+
+      <!-- Linhas das Curvas -->
+      <path d="${totalLine}" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="${blockedLine}" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+
+      <!-- Pontos Interativos com Tooltip -->
+      ${circleNodes}
+
+      <!-- Rótulos de Horário (Eixo X) -->
+      ${xLabels}
     `;
   } catch (err) {
-    console.warn(err);
+    console.warn('Erro ao renderizar gráfico:', err);
   }
 }
+
 
 // ==========================================================
 // ABA DE RELATÓRIOS (180 DIAS)
@@ -988,6 +1051,11 @@ async function loadClients() {
           <td>${escapeHtml(c.comment || '-')}</td>
           <td>
             <div style="display: flex; gap: 0.35rem;">
+              ${isRemote && !isRevoked ? `
+                <button class="btn btn-sm" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-weight: 600;" onclick="copyPsInstallCommand('${c.auth_token}')" title="Copiar comando PowerShell Admin para instalar neste PC">
+                  ⚡ Instalar
+                </button>
+              ` : ''}
               <button class="btn btn-secondary btn-sm" onclick="openEditClient('${c.ip}', '${escapeHtml(c.name)}', '${escapeHtml(c.comment)}', ${c.group_id || 1})">
                 Editar
               </button>
@@ -1005,6 +1073,18 @@ async function loadClients() {
     console.warn(err);
   }
 }
+
+window.copyPsInstallCommand = function(token) {
+  if (!token) return;
+  const origin = window.location.origin;
+  const cmd = `irm ${origin}/install.ps1?token=${token} | iex`;
+  navigator.clipboard.writeText(cmd).then(() => {
+    alert('Comando PowerShell copiado com sucesso!\n\nAbra o PowerShell como Administrador e execute:\n\n' + cmd);
+  }).catch(() => {
+    prompt('Copie o comando de instalação para executar no PowerShell como Administrador:', cmd);
+  });
+};
+
 
 async function revokeRemoteClient(token) {
   if (!confirm('Deseja realmente revogar o acesso deste dispositivo remoto? Ele não conseguirá mais resolver nomes.')) return;

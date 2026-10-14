@@ -277,7 +277,18 @@ func (s *Server) handleReportClientActivity(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) handleReportTimeline(w http.ResponseWriter, r *http.Request) {
+	hours := r.URL.Query().Get("hours")
 	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
+	if hours == "24" || (days == 1 && hours != "0") {
+		points, err := s.storage.GetActivity24h()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		jsonResponse(w, http.StatusOK, points)
+		return
+	}
+
 	points, err := s.storage.GetTimeline(days)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -746,11 +757,22 @@ func (s *Server) handleInstallScript(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	script := fmt.Sprintf(`# CoorpDNS Windows Enterprise Silent Installer
+	script := fmt.Sprintf(`# CoorpDNS Windows Enterprise Silent One-Liner Installer
 $ErrorActionPreference = "Stop"
 $Server = "%s"
 $Token = "%s"
 $InstallDir = "$env:ProgramFiles\CoorpDNS"
+
+# 0. Verificacao de Privilegios de Administrador
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    Write-Host "=================================================" -ForegroundColor Red
+    Write-Host "  ERRO: PRIVILEGIOS DE ADMINISTRADOR NECESSARIOS" -ForegroundColor Red
+    Write-Host "=================================================" -ForegroundColor Red
+    Write-Host "Abra o PowerShell clicando com o botao direito e escolhendo" -ForegroundColor Yellow
+    Write-Host "'Executar como Administrador', depois execute o comando novamente." -ForegroundColor Yellow
+    Exit 1
+}
 
 Write-Host "=================================================" -ForegroundColor Cyan
 Write-Host "  Instalando CoorpDNS Endpoint Shield..." -ForegroundColor Cyan
@@ -760,24 +782,25 @@ if (-not (Test-Path $InstallDir)) {
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 }
 
-Write-Host "[1/4] Baixando coorpdns-agent.exe..." -ForegroundColor Yellow
+Write-Host "[1/4] Finalizando instancias anteriores..." -ForegroundColor Yellow
+Stop-Process -Name "coorpdns-agent" -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 1
+
+Write-Host "[2/4] Baixando coorpdns-agent.exe..." -ForegroundColor Yellow
 $AgentPath = "$InstallDir\coorpdns-agent.exe"
 Invoke-WebRequest -Uri "$Server/downloads/coorpdns-agent.exe" -OutFile $AgentPath -UseBasicParsing
 
-Write-Host "[2/4] Registrando inicializacao automatica com o Windows..." -ForegroundColor Yellow
+Write-Host "[3/4] Registrando inicializacao automatica com o Windows..." -ForegroundColor Yellow
 $Action = New-ScheduledTaskAction -Execute "$AgentPath" -Argument "-server $Server -token $Token"
 $Trigger = New-ScheduledTaskTrigger -AtStartup
 $Principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit 0
 Register-ScheduledTask -TaskName "CoorpDNS_Agent" -Action $Action -Trigger $Trigger -Principal $Principal -Settings $Settings -Force | Out-Null
 
-Write-Host "[3/4] Iniciando servico CoorpDNS..." -ForegroundColor Yellow
-Stop-Process -Name "coorpdns-agent" -Force -ErrorAction SilentlyContinue
+Write-Host "[4/4] Iniciando servico e apontando DNS para 127.0.0.1..." -ForegroundColor Yellow
 Start-Process -FilePath "$AgentPath" -ArgumentList "-server $Server -token $Token" -WindowStyle Hidden
-
-Write-Host "[4/4] Configurando DNS para 127.0.0.1 (CoorpDNS)..." -ForegroundColor Yellow
 Start-Sleep -Seconds 2
-Get-NetAdapter | Where-Object Status -eq "Up" | Set-DnsClientServerAddress -ServerAddresses ("127.0.0.1")
+Get-NetAdapter | Where-Object Status -eq "Up" | Set-DnsClientServerAddress -ServerAddresses ("127.0.0.1") -ErrorAction SilentlyContinue
 
 Write-Host "=================================================" -ForegroundColor Green
 Write-Host "  OK: CoorpDNS instalado e protegido com sucesso!" -ForegroundColor Green
