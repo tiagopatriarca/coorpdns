@@ -336,8 +336,8 @@ func (d *DB) UpsertClient(c *Client) error {
 			mac_address = excluded.mac_address,
 			comment = excluded.comment,
 			block_enabled = excluded.block_enabled,
-			auth_token = COALESCE(excluded.auth_token, clients.auth_token),
-			is_remote = excluded.is_remote,
+			auth_token = COALESCE(NULLIF(excluded.auth_token, ''), clients.auth_token),
+			is_remote = CASE WHEN clients.is_remote = 1 THEN 1 ELSE excluded.is_remote END,
 			status = excluded.status,
 			group_id = COALESCE(excluded.group_id, clients.group_id)
 	`
