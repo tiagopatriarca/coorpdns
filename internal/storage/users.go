@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -8,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -36,32 +38,94 @@ type Session struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// HashPassword gera um hash seguro salted SHA-256 no formato salt$hash
-func HashPassword(password string) string {
-	salt := make([]byte, 16)
-	rand.Read(salt)
-	h := sha256.New()
-	h.Write(salt)
-	h.Write([]byte(password))
-	return fmt.Sprintf("%x$%x", salt, h.Sum(nil))
+const (
+	pbkdf2Iterations = 50000
+	pbkdf2KeyLen     = 32
+)
+
+// pbkdf2SHA256 implementa RFC 2898 PBKDF2 com HMAC-SHA256
+func pbkdf2SHA256(password, salt []byte, iter, keyLen int) []byte {
+	prf := hmac.New(sha256.New, password)
+	hashLen := prf.Size()
+	numBlocks := (keyLen + hashLen - 1) / hashLen
+	var buf [4]byte
+	dk := make([]byte, 0, numBlocks*hashLen)
+	u := make([]byte, hashLen)
+	t := make([]byte, hashLen)
+
+	for block := 1; block <= numBlocks; block++ {
+		prf.Reset()
+		prf.Write(salt)
+		buf[0] = byte(block >> 24)
+		buf[1] = byte(block >> 16)
+		buf[2] = byte(block >> 8)
+		buf[3] = byte(block)
+		prf.Write(buf[:4])
+		u = prf.Sum(u[:0])
+		copy(t, u)
+
+		for i := 1; i < iter; i++ {
+			prf.Reset()
+			prf.Write(u)
+			u = prf.Sum(u[:0])
+			for j := 0; j < hashLen; j++ {
+				t[j] ^= u[j]
+			}
+		}
+		dk = append(dk, t...)
+	}
+	return dk[:keyLen]
 }
 
-// CheckPassword valida se a senha informada corresponde ao hash com salt
+// HashPassword gera um hash robusto com PBKDF2 (HMAC-SHA256, 50k iterações) e salt criptográfico
+func HashPassword(password string) string {
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		// Fallback de emergência em caso improvável de erro no CSPRNG
+		salt = []byte("coorpdns_sec_salt")
+	}
+	dk := pbkdf2SHA256([]byte(password), salt, pbkdf2Iterations, pbkdf2KeyLen)
+	return fmt.Sprintf("pbkdf2$%d$%x$%x", pbkdf2Iterations, salt, dk)
+}
+
+// CheckPassword valida a senha contra hashes PBKDF2 ou legado salt$hash com tempo constante
 func CheckPassword(password, storedHash string) bool {
+	if strings.HasPrefix(storedHash, "pbkdf2$") {
+		parts := strings.Split(storedHash, "$")
+		if len(parts) != 4 {
+			return false
+		}
+		iter, err := strconv.Atoi(parts[1])
+		if err != nil || iter < 1000 {
+			return false
+		}
+		salt, err := hex.DecodeString(parts[2])
+		if err != nil {
+			return false
+		}
+		expectedHash, err := hex.DecodeString(parts[3])
+		if err != nil {
+			return false
+		}
+		actualHash := pbkdf2SHA256([]byte(password), salt, iter, len(expectedHash))
+		return subtle.ConstantTimeCompare(actualHash, expectedHash) == 1
+	}
+
+	// Compatibilidade com hash legado salt$hash (1 rodada)
 	parts := strings.Split(storedHash, "$")
-	if len(parts) != 2 {
-		// Fallback de compatibilidade caso salvo como texto plano inicial
-		return storedHash == password
+	if len(parts) == 2 {
+		salt, err := hex.DecodeString(parts[0])
+		if err != nil {
+			return false
+		}
+		h := sha256.New()
+		h.Write(salt)
+		h.Write([]byte(password))
+		expected := fmt.Sprintf("%x", h.Sum(nil))
+		return subtle.ConstantTimeCompare([]byte(parts[1]), []byte(expected)) == 1
 	}
-	salt, err := hex.DecodeString(parts[0])
-	if err != nil {
-		return false
-	}
-	h := sha256.New()
-	h.Write(salt)
-	h.Write([]byte(password))
-	expected := fmt.Sprintf("%x", h.Sum(nil))
-	return subtle.ConstantTimeCompare([]byte(parts[1]), []byte(expected)) == 1
+
+	return false
 }
 
 // MigrateUsers cria as tabelas de usuários, permissões e sessões e inicializa o admin padrão
@@ -131,6 +195,12 @@ func (d *DB) AuthenticateUser(username, password string) (*UserWithGroups, error
 
 	if !CheckPassword(password, hash) {
 		return nil, errors.New("usuário ou senha incorretos")
+	}
+
+	// Migração transparente de hash legado para PBKDF2 robusto
+	if !strings.HasPrefix(hash, "pbkdf2$") {
+		newHash := HashPassword(password)
+		d.db.Exec("UPDATE users SET password_hash = ? WHERE id = ?", newHash, u.ID)
 	}
 
 	// Carrega permissões de grupos

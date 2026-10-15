@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -20,25 +21,45 @@ import (
 	"github.com/coorpdns/coorpdns/internal/storage"
 )
 
+var (
+	tokenRegex = regexp.MustCompile(`^tok_[a-f0-9]{16,64}$`)
+	hostRegex  = regexp.MustCompile(`^[a-zA-Z0-9.\-]+(:[0-9]+)?$`)
+)
+
+func isAllowedOrigin(origin, host string) bool {
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	originHost := u.Hostname()
+	reqHost := host
+	if idx := strings.Index(reqHost, ":"); idx != -1 {
+		reqHost = reqHost[:idx]
+	}
+	return originHost == reqHost || originHost == "localhost" || originHost == "127.0.0.1" || originHost == "dns.tiplus.inf.br"
+}
+
 type Server struct {
-	cfg        *config.Config
-	filter     *filter.Engine
-	storage    *storage.DB
-	upstream   *dns.UpstreamResolver
-	configPath string
-	startTime  time.Time
-	staticFS   embed.FS
+	cfg          *config.Config
+	filter       *filter.Engine
+	storage      *storage.DB
+	upstream     *dns.UpstreamResolver
+	configPath   string
+	startTime    time.Time
+	staticFS     embed.FS
+	loginLimiter *LoginRateLimiter
 }
 
 func NewServer(cfg *config.Config, filter *filter.Engine, store *storage.DB, configPath string, staticFS embed.FS) *Server {
 	return &Server{
-		cfg:        cfg,
-		filter:     filter,
-		storage:    store,
-		upstream:   dns.NewUpstreamResolver(cfg.Upstreams),
-		configPath: configPath,
-		startTime:  time.Now(),
-		staticFS:   staticFS,
+		cfg:          cfg,
+		filter:       filter,
+		storage:      store,
+		upstream:     dns.NewUpstreamResolver(cfg.Upstreams),
+		configPath:   configPath,
+		startTime:    time.Now(),
+		staticFS:     staticFS,
+		loginLimiter: NewLoginRateLimiter(),
 	}
 }
 
@@ -104,22 +125,29 @@ func (s *Server) Routes() http.Handler {
 
 func (s *Server) securityMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 1. Cabeçalhos Globais de Segurança (OWASP A05)
+		// 1. Cabeçalhos Globais de Segurança (OWASP A05 - Security Hardening)
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com data:; img-src 'self' data: https:; connect-src 'self' https://wa.me; frame-ancestors 'none';")
 
-		// 2. Política de CORS Segura
+		isSecure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+		if isSecure {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+
+		// 2. Política de CORS Segura (Proteção estrita contra SOP Bypass)
 		if strings.HasPrefix(r.URL.Path, "/dns-query") {
 			// RFC 8484: Endpoints DoH exigem CORS para clientes web legítimos
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept")
 		} else {
-			// Endpoints administrativos e relatórios: Apenas permitir se vier da mesma origem ou Origin explícito
+			// Endpoints administrativos e relatórios: Permitir apenas se vier de origem estritamente autorizada
 			origin := r.Header.Get("Origin")
-			if origin != "" {
+			if origin != "" && isAllowedOrigin(origin, r.Host) {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
@@ -567,9 +595,18 @@ func (s *Server) handleAssignGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if u.Role != "admin" && !containsInt64(u.AllowedGroups, req.GroupID) {
-		http.Error(w, "Acesso negado para associar dispositivo a este grupo", http.StatusForbidden)
-		return
+	if u.Role != "admin" {
+		if !containsInt64(u.AllowedGroups, req.GroupID) {
+			http.Error(w, "Acesso negado para associar dispositivo a este grupo", http.StatusForbidden)
+			return
+		}
+		existing, err := s.storage.GetClientByIP(req.ClientIP)
+		if err == nil && existing != nil && existing.GroupID > 0 {
+			if !containsInt64(u.AllowedGroups, existing.GroupID) {
+				http.Error(w, "Acesso negado: dispositivo pertence a outro departamento", http.StatusForbidden)
+				return
+			}
+		}
 	}
 
 	if err := s.storage.AssignClientToGroup(req.ClientIP, req.GroupID); err != nil {
@@ -591,9 +628,18 @@ func (s *Server) handleClients(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid body", http.StatusBadRequest)
 			return
 		}
-		if u.Role != "admin" && c.GroupID > 0 && !containsInt64(u.AllowedGroups, c.GroupID) {
-			http.Error(w, "Acesso negado para o grupo informado", http.StatusForbidden)
-			return
+		if u.Role != "admin" {
+			if c.GroupID > 0 && !containsInt64(u.AllowedGroups, c.GroupID) {
+				http.Error(w, "Acesso negado para o grupo informado", http.StatusForbidden)
+				return
+			}
+			existing, err := s.storage.GetClientByIP(c.IP)
+			if err == nil && existing != nil && existing.GroupID > 0 {
+				if !containsInt64(u.AllowedGroups, existing.GroupID) {
+					http.Error(w, "Acesso negado: dispositivo pertence a outro departamento", http.StatusForbidden)
+					return
+				}
+			}
 		}
 		if err := s.storage.UpsertClient(&c); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -671,6 +717,19 @@ func (s *Server) handleRevokeRemoteClient(w http.ResponseWriter, r *http.Request
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid body", http.StatusBadRequest)
+		return
+	}
+
+	req.Token = strings.TrimSpace(req.Token)
+	client, err := s.storage.GetClientByToken(req.Token)
+	if err != nil || client == nil {
+		http.Error(w, "Dispositivo não encontrado ou já revogado", http.StatusNotFound)
+		return
+	}
+
+	// BOLA/IDOR protection: Operator can only revoke devices from their own groups
+	if u.Role != "admin" && !containsInt64(u.AllowedGroups, client.GroupID) {
+		http.Error(w, "Acesso negado para revogar dispositivo deste departamento", http.StatusForbidden)
 		return
 	}
 
@@ -856,10 +915,7 @@ func (s *Server) handleConditionalForwarders(w http.ResponseWriter, r *http.Requ
 
 func (s *Server) handleSupportConfig(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
-		u := s.requireAuth(w, r)
-		if u == nil {
-			return
-		}
+		// Acesso público para preenchimento de contatos de suporte na página de bloqueio
 		jsonResponse(w, http.StatusOK, map[string]interface{}{
 			"block_mode":    s.cfg.Server.BlockMode,
 			"server_ip":     s.cfg.Server.ServerIP,
@@ -936,11 +992,21 @@ func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	allowedFiles := map[string]bool{
+		"coorpdns-agent.exe": true,
+		"coorpdns-agent.msi": true,
+		"CoorpDNS.msi":       true,
+		"install.ps1":        true,
+	}
+	if !allowedFiles[filename] {
+		http.Error(w, "Acesso a arquivo restrito ou não permitido", http.StatusForbidden)
+		return
+	}
+
 	searchPaths := []string{
 		filepath.Join("./downloads", filename),
 		filepath.Join("/app/downloads", filename),
 		filepath.Join("./data/downloads", filename),
-		filepath.Join("C:/Users/DATEN/.gemini/antigravity-ide/scratch/coorpdns-client", filename),
 	}
 
 	var filePath string
@@ -968,11 +1034,22 @@ func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleInstallScript(w http.ResponseWriter, r *http.Request) {
-	token := r.URL.Query().Get("token")
-	serverURL := "https://" + r.Host
-	if r.TLS == nil && !strings.HasPrefix(r.Host, "localhost") {
-		if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
-			serverURL = proto + "://" + r.Host
+	token := strings.TrimSpace(r.URL.Query().Get("token"))
+	if !tokenRegex.MatchString(token) {
+		http.Error(w, "Token de endpoint corporativo inválido. Formato esperado: tok_[a-f0-9]{16,64}", http.StatusBadRequest)
+		return
+	}
+
+	host := r.Host
+	if !hostRegex.MatchString(host) {
+		http.Error(w, "Host header inválido", http.StatusBadRequest)
+		return
+	}
+
+	serverURL := "https://" + host
+	if r.TLS == nil && !strings.HasPrefix(host, "localhost") {
+		if proto := r.Header.Get("X-Forwarded-Proto"); proto == "http" || proto == "https" {
+			serverURL = proto + "://" + host
 		}
 	}
 

@@ -67,7 +67,11 @@ func main() {
 	log.Println("======================================================================")
 	log.Printf("  🛡️  CoorpDNS Endpoint Agent Iniciado")
 	log.Printf("  Servidor Nuvem : %s", agent.serverURL)
-	log.Printf("  Token Dispositivo: %s...%s", agent.token[:6], agent.token[len(agent.token)-4:])
+	tokenMasked := "***"
+	if len(agent.token) > 8 {
+		tokenMasked = agent.token[:4] + "..." + agent.token[len(agent.token)-4:]
+	}
+	log.Printf("  Token Dispositivo: %s", tokenMasked)
 	log.Printf("  Escuta Local   : %s (UDP/TCP)", agent.listenAddr)
 	log.Println("======================================================================")
 

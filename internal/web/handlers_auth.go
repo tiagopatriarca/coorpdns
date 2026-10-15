@@ -76,6 +76,12 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	clientIP := getRealClientIP(r)
+	if s.loginLimiter != nil && !s.loginLimiter.Allow(clientIP) {
+		http.Error(w, "Muitas tentativas de login incorretas. Por segurança, aguarde 5 minutos antes de tentar novamente.", http.StatusTooManyRequests)
+		return
+	}
+
 	var req struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -87,8 +93,15 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 
 	user, err := s.storage.AuthenticateUser(req.Username, req.Password)
 	if err != nil {
+		if s.loginLimiter != nil {
+			s.loginLimiter.RecordFailedAttempt(clientIP)
+		}
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
+	}
+
+	if s.loginLimiter != nil {
+		s.loginLimiter.Reset(clientIP)
 	}
 
 	token, err := s.storage.CreateSession(user.ID, 30*24*time.Hour)
@@ -134,8 +147,18 @@ func (s *Server) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Deleta do banco
-	if cookie, err := r.Cookie("coorpdns_session"); err == nil && cookie != nil {
-		s.storage.DeleteSession(cookie.Value)
+	token := ""
+	if cookie, err := r.Cookie("coorpdns_session"); err == nil && cookie != nil && cookie.Value != "" {
+		token = cookie.Value
+	}
+	if token == "" {
+		authHeader := r.Header.Get("Authorization")
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			token = strings.TrimPrefix(authHeader, "Bearer ")
+		}
+	}
+	if token != "" {
+		s.storage.DeleteSession(token)
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]string{

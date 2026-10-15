@@ -441,6 +441,35 @@ func (d *DB) GetClientByToken(token string) (*Client, error) {
 	return &c, nil
 }
 
+func (d *DB) GetClientByIP(ip string) (*Client, error) {
+	if ip == "" {
+		return nil, fmt.Errorf("ip vazio")
+	}
+
+	row := d.db.QueryRow(`
+		SELECT 
+			c.ip, c.name, c.mac_address, c.comment, c.block_enabled, c.auth_token, c.is_remote, c.status,
+			COALESCE(c.group_id, 1), COALESCE(g.name, 'Geral / Padrão'), COALESCE(g.color, '#64748b'), c.created_at
+		FROM clients c
+		LEFT JOIN client_groups g ON c.group_id = g.id
+		WHERE c.ip = ?
+	`, ip)
+
+	var c Client
+	var blockVal, isRemoteVal int
+	var mac, comment, tok, status sql.NullString
+	if err := row.Scan(&c.IP, &c.Name, &mac, &comment, &blockVal, &tok, &isRemoteVal, &status, &c.GroupID, &c.GroupName, &c.GroupColor, &c.CreatedAt); err != nil {
+		return nil, err
+	}
+	c.MAC = mac.String
+	c.Comment = comment.String
+	c.AuthToken = tok.String
+	c.BlockEnabled = blockVal == 1
+	c.IsRemote = isRemoteVal == 1
+	c.Status = status.String
+	return &c, nil
+}
+
 func (d *DB) CreateRemoteClient(name, comment string, groupID int64) (*Client, error) {
 	b := make([]byte, 12)
 	if _, err := rand.Read(b); err != nil {

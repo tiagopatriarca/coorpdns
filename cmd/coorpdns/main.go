@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/coorpdns/coorpdns/internal/config"
 	"github.com/coorpdns/coorpdns/internal/dns"
@@ -78,8 +79,12 @@ func main() {
 	// 5. Inicia Servidor Web e API REST
 	webServer := web.NewServer(cfg, filterEngine, store, *configPath, staticFS)
 	httpServer := &http.Server{
-		Addr:    cfg.Server.WebAddress,
-		Handler: webServer.Routes(),
+		Addr:              cfg.Server.WebAddress,
+		Handler:           webServer.Routes(),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	go func() {
