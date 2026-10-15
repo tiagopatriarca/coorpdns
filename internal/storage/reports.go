@@ -3,7 +3,6 @@ package storage
 import (
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/coorpdns/coorpdns/internal/filter"
