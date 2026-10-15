@@ -150,10 +150,15 @@ func (m *DNSMonitor) restoreAdapters() {
 	}
 }
 
+const (
+	gaaFlagIncludeGateways      = 0x0080
+	gaaFlagIncludeAllInterfaces = 0x0100
+)
+
 func getPhysicalAdapters() ([]AdapterInfo, error) {
 	var size uint32 = 16384
 	buf := make([]byte, size)
-	flags := uint32(windows.GAA_FLAG_INCLUDE_GATEWAYS | windows.GAA_FLAG_INCLUDE_ALL_INTERFACES)
+	flags := uint32(gaaFlagIncludeGateways | gaaFlagIncludeAllInterfaces)
 
 	err := windows.GetAdaptersAddresses(windows.AF_INET, flags, 0, (*windows.IpAdapterAddresses)(unsafe.Pointer(&buf[0])), &size)
 	if err == windows.ERROR_BUFFER_OVERFLOW {
@@ -183,12 +188,9 @@ func getPhysicalAdapters() ([]AdapterInfo, error) {
 			var dnsList []string
 			dnsAddr := curr.FirstDnsServerAddress
 			for dnsAddr != nil {
-				if dnsAddr.Address.LpSockaddr != nil {
-					sockAddr := (*syscall.RawSockaddrInet4)(unsafe.Pointer(dnsAddr.Address.LpSockaddr))
-					if sockAddr.Family == syscall.AF_INET {
-						ip := net.IP(sockAddr.Addr[:])
-						dnsList = append(dnsList, ip.String())
-					}
+				ip := dnsAddr.Address.IP()
+				if ip != nil && ip.To4() != nil {
+					dnsList = append(dnsList, ip.String())
 				}
 				dnsAddr = dnsAddr.Next
 			}
