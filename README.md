@@ -41,9 +41,13 @@ Plataforma corporativa autônoma e de alto desempenho desenvolvida em **Go (Gola
 O CoorpDNS possui sistema completo de autenticação e governança corporativa multi-tenant por departamentos:
 
 ### 1. Credenciais Iniciais de Administrador
-* **Usuário Padrão:** `admin`
-* **Senha Padrão:** `admin`
-*(Recomenda-se alterar a senha após o primeiro acesso).*
+
+> [!IMPORTANT]
+> **Acesso Inicial ao Painel Web:**
+> * **Usuário Padrão:** `admin`
+> * **Senha Padrão:** `admin`
+> 
+> *Por motivos de segurança corporativa, as credenciais padrão não são exibidas na tela de login da aplicação. Altere a senha do usuário `admin` na aba **Usuários** logo após a primeira autenticação.*
 
 ### 2. Perfis de Usuário
 | Perfil | Acesso ao Sistema | Grupos de Dispositivos | Gerenciamento de Usuários |
