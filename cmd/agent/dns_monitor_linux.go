@@ -5,7 +5,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"os/exec"
