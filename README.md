@@ -75,13 +75,16 @@ Para proteger estações de trabalho remotas, notebooks corporativos e colaborad
 irm https://dns.tiplus.inf.br/install.ps1?token=tok_SEU_TOKEN_AQUI | iex
 ```
 
-### O que o instalador faz automaticamente:
+### O que o instalador e o agente fazem automaticamente:
 * 🔒 **Verificação de Permissões**: Garante execução com privilégios de Administrador.
 * 🛑 **Encerramento Limpo**: Finaliza instâncias anteriores para evitar arquivos em uso.
 * 📦 **Download Seguro**: Baixa o binário oficial `coorpdns-agent.exe` diretamente para `C:\Program Files\CoorpDNS`.
 * ⚙️ **Agendador do Windows (Task Scheduler)**: Registra o serviço para iniciar automaticamente com o Windows como `SYSTEM` no boot do sistema.
 * 🚀 **Execução em Segundo Plano**: Inicia o agente de forma silenciosa (`-WindowStyle Hidden`), sem deixar janelas abertas na tela do colaborador.
 * 🌐 **Apontamento de Rede**: Configura as placas de rede ativas com o DNS local `127.0.0.1` apontado para o agente.
+* 🔄 **Autocura Contínua & Proteção de Roaming (Zero-Downtime)**: Quando o colaborador se desloca com o notebook sem reiniciar e conecta em outra rede Wi-Fi/cabo, o agente Go detecta via goroutine (ciclo de 5s) a sobrescrita do DNS pelo DHCP local e reaplica `127.0.0.1` imediatamente nas placas ativas.
+* 📡 **Resiliência a Captive Portals (Hotéis e Aeroportos)**: O agente captura dinamicamente o DNS do roteador local antes de forçar o loopback e armazena como contingência dinâmica. Se a nuvem DoH estiver bloqueada por portal de login, o fallback local resolve a tela de login para liberar a navegação.
+* 🧹 **Graceful Shutdown**: Em desinstalações ou paradas controladas do agente, as interfaces de rede são restauradas automaticamente para DHCP (`ResetServerAddresses`).
 
 > [!TIP]
 > Na aba **Clientes & Grupos** do painel web, basta clicar no botão **`⚡ Instalar`** ao lado do dispositivo desejado para copiar o comando personalizado na hora.

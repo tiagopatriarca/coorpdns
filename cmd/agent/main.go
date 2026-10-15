@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -17,12 +19,40 @@ import (
 )
 
 type Agent struct {
-	serverURL  string
-	token      string
-	listenAddr string
-	fallback   string
-	httpClient *http.Client
-	udpClient  *dns.Client
+	serverURL       string
+	token           string
+	listenAddr      string
+	fallback        string
+	dynamicFallback string
+	fallbackMu      sync.RWMutex
+	httpClient      *http.Client
+	udpClient       *dns.Client
+	monitor         *DNSMonitor
+}
+
+func (a *Agent) getFallback() string {
+	a.fallbackMu.RLock()
+	defer a.fallbackMu.RUnlock()
+	if a.dynamicFallback != "" {
+		return a.dynamicFallback
+	}
+	return a.fallback
+}
+
+func (a *Agent) setDynamicFallback(ip string) {
+	a.fallbackMu.Lock()
+	defer a.fallbackMu.Unlock()
+	cleanIP := strings.TrimSpace(ip)
+	if cleanIP == "" || cleanIP == "127.0.0.1" || strings.HasPrefix(cleanIP, "127.") {
+		return
+	}
+	if !strings.Contains(cleanIP, ":") {
+		cleanIP = cleanIP + ":53"
+	}
+	if a.dynamicFallback != cleanIP {
+		a.dynamicFallback = cleanIP
+		log.Printf("[FALLBACK] 🔄 Fallback dinâmico atualizado para: %s", a.dynamicFallback)
+	}
 }
 
 func main() {
@@ -73,6 +103,7 @@ func main() {
 	}
 	log.Printf("  Token Dispositivo: %s", tokenMasked)
 	log.Printf("  Escuta Local   : %s (UDP/TCP)", agent.listenAddr)
+	log.Printf("  Fallback Padrao: %s", agent.fallback)
 	log.Println("======================================================================")
 
 	dns.HandleFunc(".", agent.handleDNS)
@@ -92,13 +123,20 @@ func main() {
 		}
 	}()
 
-	log.Println("[INFO] Pronto! Aponte o DNS do seu computador para 127.0.0.1 para navegar protegido.")
+	// Inicia monitoramento contínuo e autocura do DNS nas interfaces do sistema
+	agent.monitor = NewDNSMonitor(agent.setDynamicFallback)
+	ctx, cancel := context.WithCancel(context.Background())
+	go agent.monitor.Start(ctx)
+
+	log.Println("[INFO] Agente operacional. Monitorando interfaces e protegendo 127.0.0.1.")
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	<-sigChan
 
 	log.Println("\n[INFO] Encerrando CoorpDNS Agent...")
+	cancel()
+	agent.monitor.Stop()
 	udpServer.Shutdown()
 	tcpServer.Shutdown()
 }
@@ -133,13 +171,24 @@ func (a *Agent) handleDNS(w dns.ResponseWriter, req *dns.Msg) {
 		return
 	}
 
-	// 2. Se a nuvem estiver inatingível, usa fallback local
-	log.Printf("[FALLBACK] Falha na nuvem (%v). Consultando fallback %s para %s", err, a.fallback, qname)
-	fbResp, _, fbErr := a.udpClient.Exchange(req, a.fallback)
+	// 2. Se a nuvem estiver inatingível (ex: offline ou Captive Portal pendente de login), usa fallback
+	activeFallback := a.getFallback()
+	log.Printf("[FALLBACK] Falha na nuvem (%v). Consultando fallback %s para %s", err, activeFallback, qname)
+	fbResp, _, fbErr := a.udpClient.Exchange(req, activeFallback)
 	if fbErr == nil && fbResp != nil {
 		fbResp.Id = req.Id
 		w.WriteMsg(fbResp)
 		return
+	}
+
+	// Se o fallback dinâmico falhou e for diferente do fallback estático, tenta o fallback estático
+	if activeFallback != a.fallback {
+		fbResp2, _, fbErr2 := a.udpClient.Exchange(req, a.fallback)
+		if fbErr2 == nil && fbResp2 != nil {
+			fbResp2.Id = req.Id
+			w.WriteMsg(fbResp2)
+			return
+		}
 	}
 
 	dns.HandleFailed(w, req)
