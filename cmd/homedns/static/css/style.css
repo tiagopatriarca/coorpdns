@@ -941,6 +941,61 @@ code {
   border-top: 1px solid var(--border-subtle);
 }
 
+.device-categories-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.device-category-block {
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  transition: var(--transition);
+}
+
+.device-category-block:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.device-category-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.7rem 0.95rem;
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s ease;
+}
+
+.device-category-header:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.device-category-title {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.device-category-stats {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  font-size: 0.82rem;
+}
+
+.device-category-domains {
+  padding: 0.5rem 0.85rem 0.85rem;
+  border-top: 1px solid var(--border-subtle);
+  background: rgba(0, 0, 0, 0.18);
+}
+
 .group-item-row {
   display: flex;
   justify-content: space-between;

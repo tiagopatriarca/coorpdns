@@ -501,42 +501,75 @@ async function loadGroupReport() {
     }
 
     container.innerHTML = data.devices.map((dev, idx) => {
+      const isLinux = dev.os_type === 'linux';
+      const osBadge = isLinux
+        ? `<span class="badge" style="background: rgba(234, 179, 8, 0.12); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.3); font-size: 0.72rem; padding: 0.2rem 0.5rem;">🐧 Linux</span>`
+        : `<span class="badge" style="background: rgba(59, 130, 246, 0.12); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-size: 0.72rem; padding: 0.2rem 0.5rem;">🪟 Windows</span>`;
+
       const typeBadge = dev.is_remote
         ? '<span class="tag-badge allowed">Nuvem DoH</span>'
         : '<span class="tag-badge" style="background:rgba(56,189,248,0.15); color:var(--accent-blue)">Wi-Fi Local</span>';
 
-      const domainsHtml = (!dev.domains || dev.domains.length === 0)
-        ? '<p class="text-muted" style="font-size: 0.85rem; padding: 0.5rem 0;">Nenhum site acessado por este aparelho no período selecionado.</p>'
+      const categoriesHtml = (!dev.categories || dev.categories.length === 0)
+        ? '<p class="text-muted" style="font-size: 0.85rem; padding: 0.75rem 0; text-align: center;">Nenhuma atividade registrada para este aparelho no período selecionado.</p>'
         : `
-          <div class="table-container compact" style="margin-top: 0.5rem;">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Domínio Solicitado</th>
-                  <th>Consultas</th>
-                  <th>Bloqueadas</th>
-                  <th>Ação Rápida</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${dev.domains.map(d => `
-                  <tr>
-                    <td><strong>${escapeHtml(d.domain)}</strong></td>
-                    <td>${d.total_queries.toLocaleString()}</td>
-                    <td class="${d.blocked_queries > 0 ? 'text-red' : 'text-muted'}">
-                      ${d.blocked_queries.toLocaleString()}
-                    </td>
-                    <td>
-                      ${d.blocked_queries > 0 ? `
-                        <button class="btn btn-secondary btn-sm" onclick="quickAllowDomain('${d.domain}')">Liberar</button>
-                      ` : `
-                        <button class="btn btn-danger btn-sm" onclick="quickBlockDomain('${d.domain}')">Bloquear</button>
-                      `}
-                    </td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
+          <div class="device-categories-list">
+            ${dev.categories.map((cat, catIdx) => {
+              const catBlockId = `dev-${idx}-cat-${catIdx}`;
+              const isBlocked = cat.blocked_queries > 0;
+              return `
+                <div class="device-category-block" style="border-left: 3.5px solid ${cat.color || '#3b82f6'};">
+                  <div class="device-category-header" onclick="toggleDeviceCategory('${catBlockId}')">
+                    <div class="device-category-title">
+                      <span style="font-size: 1.15rem;">${cat.icon || '📁'}</span>
+                      <span style="color: ${cat.color || 'var(--text-main)'}; font-weight: 600;">${escapeHtml(cat.category_name)}</span>
+                      <span class="badge" style="background: rgba(255, 255, 255, 0.08); font-size: 0.72rem; padding: 0.15rem 0.45rem; border-radius: 4px; color: var(--text-muted);">${cat.domains_count} ${cat.domains_count === 1 ? 'site' : 'sites'}</span>
+                    </div>
+                    <div class="device-category-stats">
+                      <span style="color: var(--text-dim);">${cat.total_queries.toLocaleString()} acessos</span>
+                      ${isBlocked ? `
+                        <span class="text-red" style="font-weight: 600; background: rgba(239, 68, 68, 0.12); padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.78rem;">
+                          🛡️ ${cat.blocked_queries.toLocaleString()} bloqueados
+                        </span>
+                      ` : ''}
+                      <span id="chevron-${catBlockId}" style="font-size: 0.75rem; color: var(--text-dim); transition: transform 0.2s;">▼</span>
+                    </div>
+                  </div>
+                  <div id="${catBlockId}" class="device-category-domains">
+                    <div class="table-container compact" style="margin: 0;">
+                      <table class="data-table">
+                        <thead>
+                          <tr>
+                            <th>Domínio Solicitado</th>
+                            <th>Consultas</th>
+                            <th>Bloqueadas</th>
+                            <th style="text-align: right;">Ação Rápida</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          ${(cat.domains || []).map(d => `
+                            <tr>
+                              <td><strong>${escapeHtml(d.domain)}</strong></td>
+                              <td>${d.total_queries.toLocaleString()}</td>
+                              <td class="${d.blocked_queries > 0 ? 'text-red font-semibold' : 'text-muted'}">
+                                ${d.blocked_queries > 0 ? `🛡️ ${d.blocked_queries.toLocaleString()}` : '0'}
+                              </td>
+                              <td style="text-align: right;">
+                                ${d.blocked_queries > 0 ? `
+                                  <button class="btn btn-secondary btn-sm" onclick="quickAllowDomain('${d.domain}')">Liberar</button>
+                                ` : `
+                                  <button class="btn btn-danger btn-sm" onclick="quickBlockDomain('${d.domain}')">Bloquear</button>
+                                `}
+                              </td>
+                            </tr>
+                          `).join('')}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
           </div>
         `;
 
@@ -544,20 +577,21 @@ async function loadGroupReport() {
         <div class="group-device-card" style="border-left: 4px solid ${data.group_color || '#10b981'};">
           <div class="group-device-header" onclick="toggleGroupDeviceCard('group-dev-body-${idx}')">
             <div class="group-device-meta">
-              <span style="font-weight: 700; font-size: 1rem;">${escapeHtml(dev.client_name)}</span>
+              <span style="font-weight: 700; font-size: 1.05rem;">${escapeHtml(dev.client_name)}</span>
               ${typeBadge}
+              ${dev.is_remote ? osBadge : ''}
               <code style="font-size: 0.8rem; color: var(--text-dim);">${dev.client_ip}</code>
             </div>
             <div class="group-device-stats">
               <span><strong>${dev.total_queries.toLocaleString()}</strong> consultas</span>
               <span class="${dev.blocked_queries > 0 ? 'text-red' : 'text-muted'}"><strong>${dev.blocked_queries.toLocaleString()}</strong> bloqueadas (${dev.block_rate.toFixed(0)}%)</span>
               <button class="btn btn-secondary btn-sm" style="pointer-events: none;">
-                Sites (${dev.domains_count}) ▼
+                Categorias (${dev.categories ? dev.categories.length : 0}) ▼
               </button>
             </div>
           </div>
           <div id="group-dev-body-${idx}" class="group-device-domains-container">
-            ${domainsHtml}
+            ${categoriesHtml}
           </div>
         </div>
       `;
@@ -574,6 +608,17 @@ function toggleGroupDeviceCard(id) {
     el.classList.toggle('hidden');
   }
 }
+
+window.toggleDeviceCategory = function(id) {
+  const el = document.getElementById(id);
+  const chevron = document.getElementById(`chevron-${id}`);
+  if (el) {
+    el.classList.toggle('hidden');
+    if (chevron) {
+      chevron.style.transform = el.classList.contains('hidden') ? 'rotate(-90deg)' : 'rotate(0deg)';
+    }
+  }
+};
 
 // 1. Relatório: Top Sites Mais Acessados
 async function loadReportTopSites() {
@@ -824,12 +869,84 @@ function setupClientModal() {
   const btnDoneRemote = document.getElementById('btnDoneRemoteModal');
   const btnSubmitRemote = document.getElementById('btnSubmitNewRemote');
 
+  // Interação de Seleção de SO (Windows vs Linux)
+  const radioWin = document.getElementById('radioOsWindows');
+  const radioLin = document.getElementById('radioOsLinux');
+  const labelWin = document.getElementById('labelOsWindows');
+  const labelLin = document.getElementById('labelOsLinux');
+
+  function updateOsOptionCards() {
+    if (radioLin && radioLin.checked) {
+      if (labelLin) {
+        labelLin.style.borderColor = '#eab308';
+        labelLin.style.background = 'rgba(234, 179, 8, 0.12)';
+      }
+      if (labelWin) {
+        labelWin.style.borderColor = 'var(--border-subtle)';
+        labelWin.style.background = 'var(--bg-card)';
+      }
+    } else {
+      if (labelWin) {
+        labelWin.style.borderColor = '#3b82f6';
+        labelWin.style.background = 'rgba(59, 130, 246, 0.1)';
+      }
+      if (labelLin) {
+        labelLin.style.borderColor = 'var(--border-subtle)';
+        labelLin.style.background = 'var(--bg-card)';
+      }
+    }
+  }
+
+  if (radioWin) radioWin.addEventListener('change', updateOsOptionCards);
+  if (radioLin) radioLin.addEventListener('change', updateOsOptionCards);
+
+  // Tabs do resultado (Windows vs Linux)
+  const tabWin = document.getElementById('tabResultWindows');
+  const tabLin = document.getElementById('tabResultLinux');
+  const blockWin = document.getElementById('blockHeroWindows');
+  const blockLin = document.getElementById('blockHeroLinux');
+
+  function switchResultTab(os) {
+    if (os === 'linux') {
+      if (tabLin) {
+        tabLin.style.background = '#ca8a04';
+        tabLin.style.color = '#fff';
+        tabLin.style.border = 'none';
+      }
+      if (tabWin) {
+        tabWin.style.background = 'rgba(255,255,255,0.05)';
+        tabWin.style.color = 'var(--text-muted)';
+        tabWin.style.border = '1px solid var(--border-subtle)';
+      }
+      if (blockLin) blockLin.classList.remove('hidden');
+      if (blockWin) blockWin.classList.add('hidden');
+    } else {
+      if (tabWin) {
+        tabWin.style.background = '#2563eb';
+        tabWin.style.color = '#fff';
+        tabWin.style.border = 'none';
+      }
+      if (tabLin) {
+        tabLin.style.background = 'rgba(255,255,255,0.05)';
+        tabLin.style.color = 'var(--text-muted)';
+        tabLin.style.border = '1px solid var(--border-subtle)';
+      }
+      if (blockWin) blockWin.classList.remove('hidden');
+      if (blockLin) blockLin.classList.add('hidden');
+    }
+  }
+
+  if (tabWin) tabWin.addEventListener('click', () => switchResultTab('windows'));
+  if (tabLin) tabLin.addEventListener('click', () => switchResultTab('linux'));
+
   if (btnOpenRemote) {
     btnOpenRemote.addEventListener('click', () => {
       document.getElementById('remoteCreateForm').classList.remove('hidden');
       document.getElementById('remoteResultSection').classList.add('hidden');
       document.getElementById('inputRemoteClientName').value = '';
       document.getElementById('inputRemoteClientComment').value = '';
+      if (radioWin) radioWin.checked = true;
+      updateOsOptionCards();
       remoteModal.classList.remove('hidden');
     });
   }
@@ -842,6 +959,8 @@ function setupClientModal() {
       const name = document.getElementById('inputRemoteClientName').value.trim();
       const comment = document.getElementById('inputRemoteClientComment').value.trim();
       const groupId = parseInt(document.getElementById('inputRemoteClientGroup').value, 10) || 1;
+      const osType = (radioLin && radioLin.checked) ? 'linux' : 'windows';
+
       if (!name) {
         alert('Informe o nome do aparelho');
         return;
@@ -851,14 +970,17 @@ function setupClientModal() {
         const res = await fetch(`${API_BASE}/api/v1/clients/remote`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, comment, group_id: groupId }),
+          body: JSON.stringify({ name, comment, group_id: groupId, os_type: osType }),
         });
         const client = await res.json();
 
         const origin = window.location.origin;
         const dohUrl = `${origin}/dns-query/${client.auth_token}`;
-        const agentCmd = `coorpdns-agent.exe -server ${origin} -token ${client.auth_token}`;
+        const agentCmd = osType === 'linux'
+          ? `coorpdns-agent-linux -server ${origin} -token ${client.auth_token}`
+          : `coorpdns-agent.exe -server ${origin} -token ${client.auth_token}`;
         const psInstallCmd = `irm ${origin}/install.ps1?token=${client.auth_token} | iex`;
+        const linuxInstallCmd = `curl -fsSL ${origin}/install.sh?token=${client.auth_token} | sudo bash`;
         const msiInstallCmd = `msiexec /i "${origin}/downloads/coorpdns-agent.msi" TOKEN="${client.auth_token}" /qn`;
 
         document.getElementById('displayRemoteToken').value = client.auth_token;
@@ -868,6 +990,9 @@ function setupClientModal() {
         const elPs = document.getElementById('displayPsInstallCommand');
         if (elPs) elPs.value = psInstallCmd;
 
+        const elLinux = document.getElementById('displayLinuxInstallCommand');
+        if (elLinux) elLinux.value = linuxInstallCmd;
+
         const elMsi = document.getElementById('displayMsiInstallCommand');
         if (elMsi) elMsi.value = msiInstallCmd;
 
@@ -876,6 +1001,11 @@ function setupClientModal() {
 
         const btnExe = document.getElementById('btnDownloadExe');
         if (btnExe) btnExe.href = `${origin}/downloads/coorpdns-agent.exe`;
+
+        const btnLinux = document.getElementById('btnDownloadLinux');
+        if (btnLinux) btnLinux.href = `${origin}/downloads/coorpdns-agent-linux`;
+
+        switchResultTab(osType);
 
         document.getElementById('remoteCreateForm').classList.add('hidden');
         document.getElementById('remoteResultSection').classList.remove('hidden');
@@ -897,6 +1027,19 @@ function setupClientModal() {
         navigator.clipboard.writeText(input.value).then(() => {
           btnCopyPs.textContent = '✅ Copiado!';
           setTimeout(() => { btnCopyPs.textContent = '📋 Copiar'; }, 2000);
+        });
+      }
+    });
+  }
+
+  const btnCopyLinux = document.getElementById('btnCopyLinuxInstall');
+  if (btnCopyLinux) {
+    btnCopyLinux.addEventListener('click', () => {
+      const input = document.getElementById('displayLinuxInstallCommand');
+      if (input && input.value) {
+        navigator.clipboard.writeText(input.value).then(() => {
+          btnCopyLinux.textContent = '✅ Copiado!';
+          setTimeout(() => { btnCopyLinux.textContent = '📋 Copiar'; }, 2000);
         });
       }
     });
@@ -1052,17 +1195,26 @@ async function loadClients() {
         <tr>
           <td>${typeBadge}</td>
           <td>${groupBadge}</td>
-          <td><strong>${escapeHtml(c.name)}</strong></td>
+          <td>
+            <strong>${escapeHtml(c.name)}</strong>
+            ${isRemote ? (c.os_type === 'linux' 
+              ? `<span class="badge" style="background:rgba(234,179,8,0.12); color:#facc15; border:1px solid rgba(234,179,8,0.3); font-size:0.72rem; padding:0.15rem 0.45rem; margin-left:0.35rem;">🐧 Linux</span>`
+              : `<span class="badge" style="background:rgba(59,130,246,0.12); color:#60a5fa; border:1px solid rgba(59,130,246,0.3); font-size:0.72rem; padding:0.15rem 0.45rem; margin-left:0.35rem;">🪟 Windows</span>`) : ''}
+          </td>
           <td><code>${c.ip}</code></td>
           <td>${tokenDisplay}</td>
           <td>${escapeHtml(c.comment || '-')}</td>
           <td>
             <div style="display: flex; gap: 0.35rem;">
-              ${isRemote && !isRevoked ? `
+              ${isRemote && !isRevoked ? (c.os_type === 'linux' ? `
+                <button class="btn btn-sm" style="background: rgba(234, 179, 8, 0.15); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.3); font-weight: 600;" onclick="copyLinuxInstallCommand('${c.auth_token}')" title="Copiar comando Linux Bash para instalar neste PC">
+                  🐧 Instalar
+                </button>
+              ` : `
                 <button class="btn btn-sm" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-weight: 600;" onclick="copyPsInstallCommand('${c.auth_token}')" title="Copiar comando PowerShell Admin para instalar neste PC">
                   ⚡ Instalar
                 </button>
-              ` : ''}
+              `) : ''}
               <button class="btn btn-secondary btn-sm" onclick="openEditClient('${c.ip}', '${escapeHtml(c.name)}', '${escapeHtml(c.comment)}', ${c.group_id || 1})">
                 Editar
               </button>
@@ -1089,6 +1241,17 @@ window.copyPsInstallCommand = function(token) {
     alert('Comando PowerShell copiado com sucesso!\n\nAbra o PowerShell como Administrador e execute:\n\n' + cmd);
   }).catch(() => {
     prompt('Copie o comando de instalação para executar no PowerShell como Administrador:', cmd);
+  });
+};
+
+window.copyLinuxInstallCommand = function(token) {
+  if (!token) return;
+  const origin = window.location.origin;
+  const cmd = `curl -fsSL ${origin}/install.sh?token=${token} | sudo bash`;
+  navigator.clipboard.writeText(cmd).then(() => {
+    alert('Comando Linux copiado com sucesso!\n\nAbra o terminal como root ou use sudo e execute:\n\n' + cmd);
+  }).catch(() => {
+    prompt('Copie o comando de instalação para executar no terminal Linux (sudo):', cmd);
   });
 };
 

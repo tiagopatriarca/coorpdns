@@ -107,9 +107,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/v1/rules", s.handleRules)
 	mux.HandleFunc("/api/v1/lists", s.handleLists)
 
-	// Downloads de Agentes e Instaladores Windows (.msi, .exe)
+	// Downloads de Agentes e Instaladores Windows (.msi, .exe) e Linux (.sh)
 	mux.HandleFunc("/downloads/", s.handleDownloads)
 	mux.HandleFunc("/install.ps1", s.handleInstallScript)
+	mux.HandleFunc("/install.sh", s.handleInstallLinuxScript)
 
 	// Servir Arquivos Estáticos (Vanilla UI)
 	sub, err := fs.Sub(s.staticFS, "static")
@@ -676,6 +677,7 @@ func (s *Server) handleCreateRemoteClient(w http.ResponseWriter, r *http.Request
 		Name    string `json:"name"`
 		Comment string `json:"comment"`
 		GroupID int64  `json:"group_id"`
+		OSType  string `json:"os_type"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid body", http.StatusBadRequest)
@@ -692,7 +694,7 @@ func (s *Server) handleCreateRemoteClient(w http.ResponseWriter, r *http.Request
 		name = "Dispositivo Remoto"
 	}
 
-	client, err := s.storage.CreateRemoteClient(name, req.Comment, req.GroupID)
+	client, err := s.storage.CreateRemoteClient(name, req.Comment, req.OSType, req.GroupID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -993,10 +995,13 @@ func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
 	}
 
 	allowedFiles := map[string]bool{
-		"coorpdns-agent.exe": true,
-		"coorpdns-agent.msi": true,
-		"CoorpDNS.msi":       true,
-		"install.ps1":        true,
+		"coorpdns-agent.exe":   true,
+		"coorpdns-agent.msi":   true,
+		"CoorpDNS.msi":         true,
+		"coorpdns-agent-linux": true,
+		"coorpdns-agent":       true,
+		"install.ps1":          true,
+		"install.sh":           true,
 	}
 	if !allowedFiles[filename] {
 		http.Error(w, "Acesso a arquivo restrito ou não permitido", http.StatusForbidden)
@@ -1104,6 +1109,108 @@ Write-Host "=================================================" -ForegroundColor 
 `, serverURL, token)
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(script))
+}
+
+func (s *Server) handleInstallLinuxScript(w http.ResponseWriter, r *http.Request) {
+	token := strings.TrimSpace(r.URL.Query().Get("token"))
+	if !tokenRegex.MatchString(token) {
+		http.Error(w, "Token de endpoint corporativo inválido. Formato esperado: tok_[a-f0-9]{16,64}", http.StatusBadRequest)
+		return
+	}
+
+	host := r.Host
+	if !hostRegex.MatchString(host) {
+		http.Error(w, "Host header inválido", http.StatusBadRequest)
+		return
+	}
+
+	serverURL := "https://" + host
+	if r.TLS == nil && !strings.HasPrefix(host, "localhost") {
+		if proto := r.Header.Get("X-Forwarded-Proto"); proto == "http" || proto == "https" {
+			serverURL = proto + "://" + host
+		}
+	}
+
+	script := fmt.Sprintf(`#!/usr/bin/env bash
+# CoorpDNS Linux Enterprise Silent One-Liner Installer
+set -e
+
+SERVER="%s"
+TOKEN="%s"
+INSTALL_DIR="/usr/local/bin"
+AGENT_BIN="$INSTALL_DIR/coorpdns-agent"
+SERVICE_FILE="/etc/systemd/system/coorpdns-agent.service"
+
+# 0. Verificacao de Privilegios de Root/Sudo
+if [ "$(id -u)" -ne 0 ]; then
+    echo "================================================="
+    echo "  ERRO: PRIVILEGIOS DE ROOT / SUDO NECESSARIOS"
+    echo "================================================="
+    echo "Abra o terminal e execute o comando com sudo:"
+    echo "  curl -fsSL $SERVER/install.sh?token=$TOKEN | sudo bash"
+    exit 1
+fi
+
+echo "================================================="
+echo "  Instalando CoorpDNS Linux Endpoint Shield..."
+echo "================================================="
+
+echo "[1/4] Finalizando instancias anteriores..."
+systemctl stop coorpdns-agent 2>/dev/null || true
+pkill -f "coorpdns-agent" 2>/dev/null || true
+
+echo "[2/4] Baixando coorpdns-agent-linux..."
+mkdir -p "$INSTALL_DIR"
+if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$SERVER/downloads/coorpdns-agent-linux" -o "$AGENT_BIN"
+elif command -v wget >/dev/null 2>&1; then
+    wget -qO "$AGENT_BIN" "$SERVER/downloads/coorpdns-agent-linux"
+else
+    echo "Erro: curl ou wget necessario para download."
+    exit 1
+fi
+chmod +x "$AGENT_BIN"
+
+echo "[3/4] Registrando servico systemd (coorpdns-agent.service)..."
+cat <<EOF > "$SERVICE_FILE"
+[Unit]
+Description=CoorpDNS Endpoint Protection Agent
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=$AGENT_BIN -server $SERVER -token $TOKEN
+Restart=always
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable coorpdns-agent.service
+
+echo "[4/4] Iniciando servico e apontando DNS para 127.0.0.1..."
+systemctl restart coorpdns-agent.service
+
+# Se o systemd-resolved estiver em uso, configura resolvectl
+if command -v resolvectl >/dev/null 2>&1; then
+    for IFACE in $(ip -o route get 8.8.8.8 2>/dev/null | awk '{print $5}'); do
+        resolvectl dns "$IFACE" 127.0.0.1 2>/dev/null || true
+        resolvectl domain "$IFACE" "~." 2>/dev/null || true
+    done
+fi
+
+echo "================================================="
+echo "  OK: CoorpDNS instalado e protegido com sucesso!"
+echo "================================================="
+`, serverURL, token)
+
+	w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(script))
 }

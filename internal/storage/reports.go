@@ -2,7 +2,11 @@ package storage
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 	"time"
+
+	"github.com/coorpdns/coorpdns/internal/filter"
 )
 
 type TopDomainItem struct {
@@ -22,6 +26,8 @@ type TopClientItem struct {
 
 type ClientDomainActivityItem struct {
 	Domain         string `json:"domain"`
+	Category       string `json:"category,omitempty"`
+	CategoryName   string `json:"category_name,omitempty"`
 	TotalQueries   int64  `json:"total_queries"`
 	BlockedQueries int64  `json:"blocked_queries"`
 }
@@ -383,16 +389,29 @@ func (d *DB) GetActivity24hFiltered(allowedGroupIDs []int64) ([]TimelinePoint, e
 	return results, nil
 }
 
-// Relatório 4: Relatório por Grupo de Dispositivos (Dispositivos do grupo e os sites que cada um acessou no período)
-type GroupDeviceActivity struct {
-	ClientIP       string                     `json:"client_ip"`
-	ClientName     string                     `json:"client_name"`
-	IsRemote       bool                       `json:"is_remote"`
+// Relatório 4: Relatório por Grupo de Dispositivos (Dispositivos do grupo, categorias e sites acessados por cada um)
+type GroupDeviceCategorySummary struct {
+	CategoryID     string                     `json:"category_id"`
+	CategoryName   string                     `json:"category_name"`
+	Icon           string                     `json:"icon"`
+	Color          string                     `json:"color"`
 	TotalQueries   int64                      `json:"total_queries"`
 	BlockedQueries int64                      `json:"blocked_queries"`
-	BlockRate      float64                    `json:"block_rate"`
 	DomainsCount   int                        `json:"domains_count"`
 	Domains        []ClientDomainActivityItem `json:"domains"`
+}
+
+type GroupDeviceActivity struct {
+	ClientIP       string                        `json:"client_ip"`
+	ClientName     string                        `json:"client_name"`
+	IsRemote       bool                          `json:"is_remote"`
+	OSType         string                        `json:"os_type"`
+	TotalQueries   int64                         `json:"total_queries"`
+	BlockedQueries int64                         `json:"blocked_queries"`
+	BlockRate      float64                       `json:"block_rate"`
+	DomainsCount   int                           `json:"domains_count"`
+	Domains        []ClientDomainActivityItem    `json:"domains"`
+	Categories     []*GroupDeviceCategorySummary `json:"categories"`
 }
 
 type GroupReportResult struct {
@@ -425,7 +444,7 @@ func (d *DB) GetGroupReport(groupID int64, days int, maxDomainsPerDevice int) (*
 	}
 
 	// 2. Busca todos os dispositivos que pertencem a este grupo
-	clientRows, err := d.db.Query("SELECT ip, name, is_remote FROM clients WHERE group_id = ? AND status = 'active' ORDER BY name ASC", groupID)
+	clientRows, err := d.db.Query("SELECT ip, name, is_remote, COALESCE(os_type, 'windows') FROM clients WHERE group_id = ? AND status = 'active' ORDER BY name ASC", groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -434,17 +453,22 @@ func (d *DB) GetGroupReport(groupID int64, days int, maxDomainsPerDevice int) (*
 		ip       string
 		name     string
 		isRemote bool
+		osType   string
 	}
 	var clientsList []clientEntry
 
 	for clientRows.Next() {
-		var ip, name string
+		var ip, name, osType string
 		var isRemoteVal int
-		if err := clientRows.Scan(&ip, &name, &isRemoteVal); err == nil {
+		if err := clientRows.Scan(&ip, &name, &isRemoteVal, &osType); err == nil {
+			if osType == "" {
+				osType = "windows"
+			}
 			clientsList = append(clientsList, clientEntry{
 				ip:       ip,
 				name:     name,
 				isRemote: isRemoteVal == 1,
+				osType:   osType,
 			})
 		}
 	}
@@ -455,8 +479,12 @@ func (d *DB) GetGroupReport(groupID int64, days int, maxDomainsPerDevice int) (*
 			ClientIP:   c.ip,
 			ClientName: c.name,
 			IsRemote:   c.isRemote,
+			OSType:     c.osType,
 			Domains:    []ClientDomainActivityItem{},
+			Categories: []*GroupDeviceCategorySummary{},
 		}
+
+		catMap := make(map[string]*GroupDeviceCategorySummary)
 
 		// 3. Busca os sites que este dispositivo específico acessou no período
 		domRows, err := d.db.Query(`
@@ -471,9 +499,29 @@ func (d *DB) GetGroupReport(groupID int64, days int, maxDomainsPerDevice int) (*
 			for domRows.Next() {
 				var it ClientDomainActivityItem
 				if err := domRows.Scan(&it.Domain, &it.TotalQueries, &it.BlockedQueries); err == nil {
+					catID, catName, icon, color := filter.DetectCategory(it.Domain)
+					it.Category = catID
+					it.CategoryName = catName
+
 					dev.TotalQueries += it.TotalQueries
 					dev.BlockedQueries += it.BlockedQueries
 					dev.Domains = append(dev.Domains, it)
+
+					cSummary, exists := catMap[catID]
+					if !exists {
+						cSummary = &GroupDeviceCategorySummary{
+							CategoryID:   catID,
+							CategoryName: catName,
+							Icon:         icon,
+							Color:        color,
+							Domains:      []ClientDomainActivityItem{},
+						}
+						catMap[catID] = cSummary
+					}
+					cSummary.TotalQueries += it.TotalQueries
+					cSummary.BlockedQueries += it.BlockedQueries
+					cSummary.Domains = append(cSummary.Domains, it)
+					cSummary.DomainsCount = len(cSummary.Domains)
 				}
 			}
 			domRows.Close()
@@ -483,6 +531,25 @@ func (d *DB) GetGroupReport(groupID int64, days int, maxDomainsPerDevice int) (*
 		if dev.TotalQueries > 0 {
 			dev.BlockRate = float64(dev.BlockedQueries) / float64(dev.TotalQueries) * 100.0
 		}
+
+		// Ordenar categorias: categorias com bloqueios ou mais acessadas primeiro
+		var catList []*GroupDeviceCategorySummary
+		for _, catSum := range catMap {
+			catList = append(catList, catSum)
+		}
+		sort.Slice(catList, func(i, j int) bool {
+			if catList[i].BlockedQueries != catList[j].BlockedQueries {
+				return catList[i].BlockedQueries > catList[j].BlockedQueries
+			}
+			if catList[i].CategoryID == "general" && catList[j].CategoryID != "general" {
+				return false
+			}
+			if catList[j].CategoryID == "general" && catList[i].CategoryID != "general" {
+				return true
+			}
+			return catList[i].TotalQueries > catList[j].TotalQueries
+		})
+		dev.Categories = catList
 
 		result.TotalQueries += dev.TotalQueries
 		result.BlockedQueries += dev.BlockedQueries

@@ -19,9 +19,10 @@ RUN go mod tidy
 # Compilação otimizada do binário CoorpDNS
 RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o /build/coorpdns ./cmd/coorpdns
 
-# Compilação cruzada do agente oficial para Windows (com autocura de DNS e resiliência)
+# Compilação cruzada dos agentes oficiais para Windows e Linux (com autocura de DNS e resiliência)
 RUN mkdir -p /build/downloads && \
-    CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o /build/downloads/coorpdns-agent.exe ./cmd/agent
+    CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o /build/downloads/coorpdns-agent.exe ./cmd/agent && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o /build/downloads/coorpdns-agent-linux ./cmd/agent
 
 # Estágio 2: Imagem final mínima e segura
 FROM alpine:3.19
@@ -36,6 +37,7 @@ RUN mkdir -p /app/data /app/config /app/downloads
 # Copia binários do builder
 COPY --from=builder /build/coorpdns /app/coorpdns
 COPY --from=builder /build/downloads/coorpdns-agent.exe /app/downloads/coorpdns-agent.exe
+COPY --from=builder /build/downloads/coorpdns-agent-linux /app/downloads/coorpdns-agent-linux
 
 # Expõe portas DNS (53 UDP/TCP) e Painel Web (8080)
 EXPOSE 53/udp 53/tcp 8080/tcp

@@ -46,6 +46,7 @@ type Client struct {
 	GroupID      int64     `json:"group_id"`      // ID do grupo ao qual o dispositivo pertence
 	GroupName    string    `json:"group_name"`    // Nome do grupo para exibição
 	GroupColor   string    `json:"group_color"`   // Cor do grupo para badge visual
+	OSType       string    `json:"os_type"`       // "windows" ou "linux"
 	CreatedAt    time.Time `json:"created_at"`
 }
 
@@ -201,6 +202,7 @@ func (d *DB) migrate() error {
 	d.db.Exec("ALTER TABLE clients ADD COLUMN is_remote INTEGER DEFAULT 0")
 	d.db.Exec("ALTER TABLE clients ADD COLUMN status TEXT DEFAULT 'active'")
 	d.db.Exec("ALTER TABLE clients ADD COLUMN group_id INTEGER DEFAULT 1")
+	d.db.Exec("ALTER TABLE clients ADD COLUMN os_type TEXT DEFAULT 'windows'")
 
 	// Migração de Usuários, Permissões e Sessões
 	if err := d.MigrateUsers(); err != nil {
@@ -333,9 +335,12 @@ func (d *DB) Close() error {
 
 // Clientes
 func (d *DB) UpsertClient(c *Client) error {
+	if c.OSType != "linux" {
+		c.OSType = "windows"
+	}
 	query := `
-		INSERT INTO clients (ip, name, mac_address, comment, block_enabled, auth_token, is_remote, status, group_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO clients (ip, name, mac_address, comment, block_enabled, auth_token, is_remote, status, group_id, os_type)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(ip) DO UPDATE SET
 			name = excluded.name,
 			mac_address = excluded.mac_address,
@@ -344,7 +349,8 @@ func (d *DB) UpsertClient(c *Client) error {
 			auth_token = COALESCE(NULLIF(excluded.auth_token, ''), clients.auth_token),
 			is_remote = CASE WHEN clients.is_remote = 1 THEN 1 ELSE excluded.is_remote END,
 			status = excluded.status,
-			group_id = COALESCE(excluded.group_id, clients.group_id)
+			group_id = COALESCE(excluded.group_id, clients.group_id),
+			os_type = COALESCE(NULLIF(excluded.os_type, ''), clients.os_type)
 	`
 	blockVal := 1
 	if !c.BlockEnabled {
@@ -360,7 +366,7 @@ func (d *DB) UpsertClient(c *Client) error {
 	if c.GroupID <= 0 {
 		c.GroupID = 1
 	}
-	_, err := d.db.Exec(query, c.IP, c.Name, c.MAC, c.Comment, blockVal, c.AuthToken, isRemoteVal, c.Status, c.GroupID)
+	_, err := d.db.Exec(query, c.IP, c.Name, c.MAC, c.Comment, blockVal, c.AuthToken, isRemoteVal, c.Status, c.GroupID, c.OSType)
 	return err
 }
 
@@ -372,7 +378,8 @@ func (d *DB) GetClientsFiltered(allowedGroupIDs []int64) ([]Client, error) {
 	query := `
 		SELECT 
 			c.ip, c.name, c.mac_address, c.comment, c.block_enabled, c.auth_token, c.is_remote, c.status, 
-			COALESCE(c.group_id, 1), COALESCE(g.name, 'Geral / Padrão'), COALESCE(g.color, '#64748b'), c.created_at 
+			COALESCE(c.group_id, 1), COALESCE(g.name, 'Geral / Padrão'), COALESCE(g.color, '#64748b'),
+			COALESCE(c.os_type, 'windows'), c.created_at 
 		FROM clients c
 		LEFT JOIN client_groups g ON c.group_id = g.id
 	`
@@ -394,8 +401,8 @@ func (d *DB) GetClientsFiltered(allowedGroupIDs []int64) ([]Client, error) {
 	for rows.Next() {
 		var c Client
 		var blockVal, isRemoteVal int
-		var mac, comment, token, status sql.NullString
-		if err := rows.Scan(&c.IP, &c.Name, &mac, &comment, &blockVal, &token, &isRemoteVal, &status, &c.GroupID, &c.GroupName, &c.GroupColor, &c.CreatedAt); err != nil {
+		var mac, comment, token, status, osType sql.NullString
+		if err := rows.Scan(&c.IP, &c.Name, &mac, &comment, &blockVal, &token, &isRemoteVal, &status, &c.GroupID, &c.GroupName, &c.GroupColor, &osType, &c.CreatedAt); err != nil {
 			continue
 		}
 		c.MAC = mac.String
@@ -406,6 +413,10 @@ func (d *DB) GetClientsFiltered(allowedGroupIDs []int64) ([]Client, error) {
 		c.Status = status.String
 		if c.Status == "" {
 			c.Status = "active"
+		}
+		c.OSType = osType.String
+		if c.OSType == "" {
+			c.OSType = "windows"
 		}
 		list = append(list, c)
 	}
@@ -420,7 +431,8 @@ func (d *DB) GetClientByToken(token string) (*Client, error) {
 	row := d.db.QueryRow(`
 		SELECT 
 			c.ip, c.name, c.mac_address, c.comment, c.block_enabled, c.auth_token, c.is_remote, c.status,
-			COALESCE(c.group_id, 1), COALESCE(g.name, 'Geral / Padrão'), COALESCE(g.color, '#64748b'), c.created_at
+			COALESCE(c.group_id, 1), COALESCE(g.name, 'Geral / Padrão'), COALESCE(g.color, '#64748b'),
+			COALESCE(c.os_type, 'windows'), c.created_at
 		FROM clients c
 		LEFT JOIN client_groups g ON c.group_id = g.id
 		WHERE c.auth_token = ? AND c.status = 'active'
@@ -428,8 +440,8 @@ func (d *DB) GetClientByToken(token string) (*Client, error) {
 
 	var c Client
 	var blockVal, isRemoteVal int
-	var mac, comment, tok, status sql.NullString
-	if err := row.Scan(&c.IP, &c.Name, &mac, &comment, &blockVal, &tok, &isRemoteVal, &status, &c.GroupID, &c.GroupName, &c.GroupColor, &c.CreatedAt); err != nil {
+	var mac, comment, tok, status, osType sql.NullString
+	if err := row.Scan(&c.IP, &c.Name, &mac, &comment, &blockVal, &tok, &isRemoteVal, &status, &c.GroupID, &c.GroupName, &c.GroupColor, &osType, &c.CreatedAt); err != nil {
 		return nil, err
 	}
 	c.MAC = mac.String
@@ -438,6 +450,10 @@ func (d *DB) GetClientByToken(token string) (*Client, error) {
 	c.BlockEnabled = blockVal == 1
 	c.IsRemote = isRemoteVal == 1
 	c.Status = status.String
+	c.OSType = osType.String
+	if c.OSType == "" {
+		c.OSType = "windows"
+	}
 	return &c, nil
 }
 
@@ -449,7 +465,8 @@ func (d *DB) GetClientByIP(ip string) (*Client, error) {
 	row := d.db.QueryRow(`
 		SELECT 
 			c.ip, c.name, c.mac_address, c.comment, c.block_enabled, c.auth_token, c.is_remote, c.status,
-			COALESCE(c.group_id, 1), COALESCE(g.name, 'Geral / Padrão'), COALESCE(g.color, '#64748b'), c.created_at
+			COALESCE(c.group_id, 1), COALESCE(g.name, 'Geral / Padrão'), COALESCE(g.color, '#64748b'),
+			COALESCE(c.os_type, 'windows'), c.created_at
 		FROM clients c
 		LEFT JOIN client_groups g ON c.group_id = g.id
 		WHERE c.ip = ?
@@ -457,8 +474,8 @@ func (d *DB) GetClientByIP(ip string) (*Client, error) {
 
 	var c Client
 	var blockVal, isRemoteVal int
-	var mac, comment, tok, status sql.NullString
-	if err := row.Scan(&c.IP, &c.Name, &mac, &comment, &blockVal, &tok, &isRemoteVal, &status, &c.GroupID, &c.GroupName, &c.GroupColor, &c.CreatedAt); err != nil {
+	var mac, comment, tok, status, osType sql.NullString
+	if err := row.Scan(&c.IP, &c.Name, &mac, &comment, &blockVal, &tok, &isRemoteVal, &status, &c.GroupID, &c.GroupName, &c.GroupColor, &osType, &c.CreatedAt); err != nil {
 		return nil, err
 	}
 	c.MAC = mac.String
@@ -467,10 +484,14 @@ func (d *DB) GetClientByIP(ip string) (*Client, error) {
 	c.BlockEnabled = blockVal == 1
 	c.IsRemote = isRemoteVal == 1
 	c.Status = status.String
+	c.OSType = osType.String
+	if c.OSType == "" {
+		c.OSType = "windows"
+	}
 	return &c, nil
 }
 
-func (d *DB) CreateRemoteClient(name, comment string, groupID int64) (*Client, error) {
+func (d *DB) CreateRemoteClient(name, comment, osType string, groupID int64) (*Client, error) {
 	b := make([]byte, 12)
 	if _, err := rand.Read(b); err != nil {
 		return nil, err
@@ -482,6 +503,11 @@ func (d *DB) CreateRemoteClient(name, comment string, groupID int64) (*Client, e
 		groupID = 1
 	}
 
+	cleanOS := strings.ToLower(strings.TrimSpace(osType))
+	if cleanOS != "linux" {
+		cleanOS = "windows"
+	}
+
 	client := &Client{
 		IP:           virtualIP,
 		Name:         name,
@@ -491,6 +517,7 @@ func (d *DB) CreateRemoteClient(name, comment string, groupID int64) (*Client, e
 		IsRemote:     true,
 		Status:       "active",
 		GroupID:      groupID,
+		OSType:       cleanOS,
 		CreatedAt:    time.Now(),
 	}
 

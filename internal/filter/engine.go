@@ -108,19 +108,53 @@ func CleanDomain(d string) string {
 
 // Identifica se um domínio pertence a uma categoria pré-mapeada
 func (e *Engine) CategorizeDomain(domain string) string {
+	catID, _, _, _ := DetectCategory(domain)
+	if catID == "general" {
+		return ""
+	}
+	return catID
+}
+
+// Retorna as informações completas da categoria para um determinado domínio
+func DetectCategory(domain string) (catID, catName, icon, color string) {
 	domain = CleanDomain(domain)
 	if domain == "" {
-		return ""
+		return "general", "Geral / Navegação", "fas fa-globe", "#64748b"
 	}
 
 	for cat, domains := range categoryDatabase {
 		for _, base := range domains {
 			if domain == base || strings.HasSuffix(domain, "."+base) {
-				return cat
+				info := GetCategoryInfo(cat)
+				return info.ID, info.Name, info.Icon, info.Color
 			}
 		}
 	}
-	return ""
+	return "general", "Geral / Navegação", "fas fa-globe", "#64748b"
+}
+
+// Retorna metadados de uma categoria pelo ID
+func GetCategoryInfo(catID string) CategoryInfo {
+	for _, cat := range AvailableCategories {
+		if cat.ID == catID {
+			return cat
+		}
+	}
+	if catID == "general" {
+		return CategoryInfo{
+			ID:          "general",
+			Name:        "Geral / Navegação",
+			Description: "Sites e serviços gerais de navegação na web",
+			Icon:        "fas fa-globe",
+			Color:       "#64748b",
+		}
+	}
+	return CategoryInfo{
+		ID:    catID,
+		Name:  catID,
+		Icon:  "fas fa-folder",
+		Color: "#64748b",
+	}
 }
 
 // Checa regras considerando as políticas de categorias do grupo do dispositivo
