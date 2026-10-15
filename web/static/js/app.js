@@ -113,6 +113,7 @@ function switchTab(tabId) {
   } else if (tabId === 'clients') {
     loadClients();
   } else if (tabId === 'users') {
+    if (!state.groups || state.groups.length === 0) loadGroups();
     loadUsers();
   }
 }
@@ -1706,8 +1707,8 @@ function setupUserControls() {
   const roleSelect = document.getElementById('userRole');
 
   if (btnOpen) {
-    btnOpen.addEventListener('click', () => {
-      openUserModal();
+    btnOpen.addEventListener('click', async () => {
+      await openUserModal();
     });
   }
 
@@ -1806,8 +1807,9 @@ function updateGroupSelectionCount() {
   }
 }
 
-function openUserModal(user = null) {
+async function openUserModal(user = null) {
   const modal = document.getElementById('modalUser');
+  if (!modal) return;
   const title = document.getElementById('modalUserTitle');
   const formId = document.getElementById('userFormId');
   const fullName = document.getElementById('userFullName');
@@ -1818,22 +1820,29 @@ function openUserModal(user = null) {
   const groupsList = document.getElementById('userGroupsList');
   const container = document.getElementById('groupSelectionContainer');
 
+  // Garante que grupos estejam carregados
+  if (!state.groups || state.groups.length === 0) {
+    await loadGroups();
+  }
+
   // Renderiza checklist de grupos disponíveis no sistema
-  groupsList.innerHTML = state.groups.map(g => {
-    const isChecked = user && user.allowed_groups && user.allowed_groups.includes(g.id);
-    return `
-      <label class="group-checkbox-item">
-        <input type="checkbox" value="${g.id}" ${isChecked ? 'checked' : ''} onchange="updateGroupSelectionCount()">
-        <div class="group-checkbox-content">
-          <span class="group-checkbox-name">
-            <span class="group-checkbox-color-dot" style="background: ${g.color};"></span>
-            ${escapeHtml(g.name)}
-          </span>
-          <span class="tag-badge" style="font-size: 0.7rem; background: rgba(255,255,255,0.06);">${g.client_count || 0} dispositivos</span>
-        </div>
-      </label>
-    `;
-  }).join('');
+  if (groupsList) {
+    groupsList.innerHTML = (state.groups || []).map(g => {
+      const isChecked = user && user.allowed_groups && user.allowed_groups.some(gid => gid == g.id);
+      return `
+        <label class="group-checkbox-item">
+          <input type="checkbox" value="${g.id}" ${isChecked ? 'checked' : ''} onchange="updateGroupSelectionCount()">
+          <div class="group-checkbox-content">
+            <span class="group-checkbox-name">
+              <span class="group-checkbox-color-dot" style="background: ${g.color};"></span>
+              ${escapeHtml(g.name)}
+            </span>
+            <span class="tag-badge" style="font-size: 0.7rem; background: rgba(255,255,255,0.06);">${g.client_count || 0} dispositivos</span>
+          </div>
+        </label>
+      `;
+    }).join('');
+  }
 
   if (user) {
     title.textContent = 'Editar Usuário: ' + (user.full_name || user.username);
@@ -1931,12 +1940,15 @@ async function loadUsers() {
   }
 }
 
-window.editUserById = function(id) {
-  const user = state.users.find(u => u.id === id);
+window.editUserById = async function(id) {
+  const user = (state.users || []).find(u => u.id == id);
   if (user) {
-    openUserModal(user);
+    await openUserModal(user);
   }
 };
+
+window.openUserModal = openUserModal;
+window.updateGroupSelectionCount = updateGroupSelectionCount;
 
 window.deleteUserById = async function(id, username) {
   if (!confirm(`Deseja realmente excluir o usuário "${username}"?`)) return;
