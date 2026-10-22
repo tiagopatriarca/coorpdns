@@ -1068,7 +1068,7 @@ func (s *Server) handleStatsDevices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clients, _ := s.storage.GetAllClients()
+	clients, _ := s.storage.GetClients()
 	total := len(clients)
 	online := total
 	if online > 1 {
@@ -1093,7 +1093,7 @@ func (s *Server) handleStatsGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	groups, err := s.storage.GetAllGroups()
+	groups, err := s.storage.GetGroups()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
