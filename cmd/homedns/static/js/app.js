@@ -2148,38 +2148,113 @@ window.deleteUserById = async function(id, username) {
 // ==========================================================
 // SVGs & Ícones Autênticos de Aplicações (Emil Kowalski Design)
 // ==========================================================
-function getAppIconSvg(appId, name, color = '#3b82f6') {
+function getAppIconSvg(appId, name, color = '#3b82f6', domains = []) {
   const icons = {
+    // Messaging & Collaboration
     whatsapp: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2m.01 1.67c2.2 0 4.26.86 5.82 2.42a8.23 8.23 0 0 1 2.41 5.83c0 4.54-3.7 8.24-8.24 8.24-1.48 0-2.93-.4-4.2-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.19 8.19 0 0 1-1.26-4.38c0-4.54 3.7-8.24 8.24-8.24m4.52 11.66c-.25-.13-1.47-.72-1.7-.81-.23-.08-.39-.13-.56.13-.17.25-.64.81-.79.97-.14.17-.29.19-.54.06-.25-.13-1.06-.39-2.02-1.24-.75-.67-1.26-1.49-1.41-1.74-.14-.25-.02-.39.11-.51.11-.11.25-.29.37-.44.13-.14.17-.25.25-.42.08-.17.04-.31-.02-.44-.06-.13-.56-1.35-.77-1.85-.2-.49-.41-.42-.56-.43h-.48c-.17 0-.44.06-.67.31-.23.25-.88.86-.88 2.1 0 1.24.9 2.44 1.03 2.61.13.17 1.78 2.72 4.31 3.81.6.26 1.07.42 1.44.53.61.19 1.16.17 1.6.1.49-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.14-1.18-.06-.1-.22-.16-.47-.28"/></svg>`,
+    telegram: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="m20.665 3.717-17.73 6.837c-1.21.486-1.203 1.161-.222 1.462l4.552 1.42 10.532-6.645c.498-.303.953-.14.579.192l-8.533 7.701h-.002l-.313 4.67c.458 0 .66-.21.916-.457l2.199-2.138 4.574 3.379c.843.464 1.45.224 1.66-.782l3.003-14.156c.307-1.23-.468-1.787-1.215-1.483z"/></svg>`,
+    discord: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.929 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.894.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>`,
     teams: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="M19.5 7.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0M17.5 10c-.7 0-1.34.24-1.85.64A4.5 4.5 0 0 1 18 14.5v3.5h3.5c.83 0 1.5-.67 1.5-1.5v-3c0-1.93-1.57-3.5-3.5-3.5M10.5 4a3 3 0 1 1-6 0 3 3 0 0 1 6 0M12 11c0-2.48-2.02-4.5-4.5-4.5S3 8.52 3 11v6c0 .83.67 1.5 1.5 1.5h6c.83 0 1.5-.67 1.5-1.5z"/></svg>`,
     outlook: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="m2 7 10 7 10-7"/></svg>`,
     skype: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><circle cx="16.5" cy="7.5" r="4"/><circle cx="7.5" cy="16.5" r="4"/><path d="M12 6a6 6 0 0 0-6 6c0 .7.12 1.36.35 1.98A6 6 0 0 0 18 12a6 6 0 0 0-6-6z"/></svg>`,
-    office_365: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg>`,
-    itau: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="3" y="3" width="18" height="18" rx="4"/><text x="12" y="15" text-anchor="middle" font-size="9" font-weight="900" fill="#000" font-family="sans-serif">ITAU</text></svg>`,
-    bradesco: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M8 10h8"/></svg>`,
-    bing: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="m5 3 5 2v11l5-3-2-2-4 1V6l7 3-1 12-10-6z"/></svg>`,
     zoom: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="3" y="6" width="12" height="12" rx="2"/><path d="m15 10 6-4v12l-6-4z"/></svg>`,
+
+    // Microsoft & Office
+    office_365: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg>`,
+    azure: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="M19 18H6a4 4 0 0 1-.5-7.9A6 6 0 0 1 17 8a4.5 4.5 0 0 1 2 10z"/></svg>`,
+    bing: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="m5 3 5 2v11l5-3-2-2-4 1V6l7 3-1 12-10-6z"/></svg>`,
+    edge: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><circle cx="12" cy="12" r="9" fill="none" stroke="#fff" stroke-width="2"/><path d="M12 7a5 5 0 0 1 5 5c0 3-2 5-5 5s-6-2-6-5a5 5 0 0 1 6-5z" fill="#fff"/></svg>`,
+    copilot: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><circle cx="12" cy="12" r="8" fill="none" stroke="#fff" stroke-width="2"/><path d="M8 12h8M12 8v8" stroke="#fff" stroke-width="2"/></svg>`,
+
+    // AI
     chatgpt: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="M22.28 9.87a5.98 5.98 0 0 0-.52-4.94 6.05 6.05 0 0 0-6.51-2.82A6.06 6.06 0 0 0 10.6.49 6.05 6.05 0 0 0 5.2 3.42a6.05 6.05 0 0 0-4.13 4.14 6.06 6.06 0 0 0 1.45 6.37 5.98 5.98 0 0 0 .52 4.94 6.05 6.05 0 0 0 6.51 2.82 6.06 6.06 0 0 0 4.65 1.62 6.05 6.05 0 0 0 5.4-2.93 6.05 6.05 0 0 0 4.13-4.14 6.06 6.06 0 0 0-1.45-6.37"/></svg>`,
     claude_ai: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`,
-    bet365: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="3" y="4" width="18" height="16" rx="3"/><text x="12" y="15" text-anchor="middle" font-size="8" font-weight="900" fill="#facc15" font-family="sans-serif">365</text></svg>`,
-    betano: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><circle cx="12" cy="12" r="9"/><text x="12" y="16" text-anchor="middle" font-size="11" font-weight="900" fill="#fff" font-family="sans-serif">B</text></svg>`,
-    betfair: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="m5 15 4-4 4 4M19 9l-4 4-4-4"/></svg>`,
-    blaze: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>`,
+    character_ai: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="3" y="3" width="18" height="18" rx="4" fill="#111"/><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="900" fill="#fff" font-family="sans-serif">[c]</text></svg>`,
+    copy_ai: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="M16 4H8a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2m-4 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6"/></svg>`,
+    dall_e: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><circle cx="12" cy="12" r="9" fill="none" stroke="#fff" stroke-width="2"/><circle cx="9" cy="10" r="1.5"/><circle cx="15" cy="10" r="1.5"/><circle cx="12" cy="15" r="1.5"/></svg>`,
+
+    // Banks
+    itau: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="3" y="3" width="18" height="18" rx="4" fill="#ea580c"/><text x="12" y="15" text-anchor="middle" font-size="9" font-weight="900" fill="#002d72" font-family="sans-serif">ITAU</text></svg>`,
+    bradesco: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><circle cx="12" cy="12" r="9" fill="#dc2626"/><path d="M12 7v10M8 10h8" stroke="#fff" stroke-width="2"/></svg>`,
+    banco_do_brasil: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#facc15"><rect x="2" y="2" width="20" height="20" rx="3" fill="#003882"/><text x="12" y="16" text-anchor="middle" font-size="11" font-weight="900" fill="#facc15" font-family="sans-serif">BB</text></svg>`,
+    banco_inter: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="2" y="2" width="20" height="20" rx="4" fill="#f97316"/><text x="12" y="15" text-anchor="middle" font-size="7.5" font-weight="900" fill="#fff" font-family="sans-serif">inter</text></svg>`,
+    banco_pan: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="2" y="2" width="20" height="20" rx="4" fill="#0284c7"/><text x="12" y="16" text-anchor="middle" font-size="9" font-weight="900" fill="#fff" font-family="sans-serif">PAN</text></svg>`,
+    banco_safra: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#facc15"><rect x="2" y="2" width="20" height="20" rx="4" fill="#0a1931"/><text x="12" y="15" text-anchor="middle" font-size="7" font-weight="900" fill="#facc15" font-family="serif">SAFRA</text></svg>`,
+    nubank: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="2" y="2" width="20" height="20" rx="4" fill="#820ad1"/><text x="12" y="16" text-anchor="middle" font-size="11" font-weight="900" fill="#fff" font-family="sans-serif">nu</text></svg>`,
+    santander: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="2" y="2" width="20" height="20" rx="4" fill="#ec0000"/><path d="M12 5c-2.5 4-5 6.5-5 9.5a5 5 0 0 0 10 0c0-3-2.5-5.5-5-9.5z" fill="#fff"/></svg>`,
+
+    // Betting
+    bet365: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="2" y="3" width="20" height="18" rx="3" fill="#006b52"/><text x="12" y="15" text-anchor="middle" font-size="8" font-weight="900" fill="#facc15" font-family="sans-serif">365</text></svg>`,
+    betano: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><circle cx="12" cy="12" r="9" fill="#f95900"/><text x="12" y="16" text-anchor="middle" font-size="11" font-weight="900" fill="#fff" font-family="sans-serif">B</text></svg>`,
+    betfair: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#f59e0b"><rect x="2" y="2" width="20" height="20" rx="4" fill="#111"/><path d="m6 15 4-4 4 4M18 9l-4 4-4-4" stroke="#f59e0b" stroke-width="2.5" fill="none"/></svg>`,
+    1xbet: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="2" y="2" width="20" height="20" rx="4" fill="#105a96"/><text x="12" y="16" text-anchor="middle" font-size="10" font-weight="900" fill="#fff" font-family="sans-serif">1X</text></svg>`,
+    bet_da_sorte: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="2" y="2" width="20" height="20" rx="4" fill="#16a34a"/><circle cx="12" cy="12" r="6" fill="#facc15"/><text x="12" y="15" text-anchor="middle" font-size="8" font-weight="900" fill="#000" font-family="sans-serif">★</text></svg>`,
+    blaze: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="2" y="2" width="20" height="20" rx="4" fill="#000"/><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" fill="#ef4444"/></svg>`,
+    kto: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="2" y="2" width="20" height="20" rx="4" fill="#dc2626"/><text x="12" y="15" text-anchor="middle" font-size="8" font-weight="900" fill="#fff" font-family="sans-serif">KTO</text></svg>`,
+    pixbet: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="2" y="2" width="20" height="20" rx="4" fill="#2563eb"/><path d="m12 6-5 5 5 5 5-5-5-5zm0 3 2.5 2.5L12 14 9.5 11.5 12 9z"/></svg>`,
+    estrelabet: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#facc15"><rect x="2" y="2" width="20" height="20" rx="4" fill="#0a1931"/><polygon points="12 4 14.5 9 20 9.8 16 13.8 17 19.2 12 16.5 7 19.2 8 13.8 4 9.8 9.5 9"/></svg>`,
+    sportingbet: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="2" y="2" width="20" height="20" rx="4" fill="#0284c7"/><text x="12" y="16" text-anchor="middle" font-size="9" font-weight="900" fill="#fff" font-family="sans-serif">SB</text></svg>`,
+
+    // Games
     steam: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="M12 2a10 10 0 0 0-9.95 9l4.5 1.86a3 3 0 0 1 3.45-1.42l3.23-4.66A3.49 3.49 0 0 1 16.5 6a3.5 3.5 0 1 1-3.5 3.5l-4.66 3.23a3 3 0 0 1-1.42 3.45L8.78 20.68A10 10 0 1 0 12 2"/></svg>`,
     roblox: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="m18.5 5.5-13 3.5 3.5 13 13-3.5zm-6.5 8a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3"/></svg>`,
-    discord: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.929 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.894.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>`,
+    among_us: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="2" y="2" width="20" height="20" rx="4" fill="#c51111"/><path d="M12 5c-2.2 0-4 1.8-4 4v7h2v2h2v-2h2v2h2v-2h2V9c0-2.2-1.8-4-4-4zm3 5H10a1.5 1.5 0 0 1 0-3h5a1.5 1.5 0 0 1 0 3z" fill="#fff"/></svg>`,
+    brawl_stars: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#facc15"><circle cx="12" cy="12" r="9" fill="#f59e0b"/><circle cx="9" cy="11" r="2" fill="#000"/><circle cx="15" cy="11" r="2" fill="#000"/><rect x="10" y="15" width="4" height="2" rx="1" fill="#000"/></svg>`,
+    epic_games: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="2" y="2" width="20" height="20" rx="4" fill="#111"/><polygon points="12 4 19 6 17 18 12 20 7 18 5 6" fill="none" stroke="#fff" stroke-width="2"/></svg>`,
+
+    // Google
+    google_agenda: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="3" y="4" width="18" height="16" rx="3" fill="#4285f4"/><text x="12" y="16" text-anchor="middle" font-size="9" font-weight="900" fill="#fff" font-family="sans-serif">31</text></svg>`,
+    google_docs: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="4" y="3" width="16" height="18" rx="2" fill="#2563eb"/><path d="M8 8h8M8 12h8M8 16h5" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>`,
+    google_drive: `<svg viewBox="0 0 24 24" width="16" height="16"><polygon points="8 4 16 4 21 13 13 13" fill="#ffba00"/><polygon points="3 13 8 4 13 13 8 22" fill="#0066da"/><polygon points="8 22 13 13 21 13 16 22" fill="#00ac47"/></svg>`,
+    google_fotos: `<svg viewBox="0 0 24 24" width="16" height="16"><path d="M12 2a4 4 0 0 1 4 4v2h-4a4 4 0 0 1-4-4 4 4 0 0 1 4-2z" fill="#ea4335"/><path d="M22 12a4 4 0 0 1-4 4h-2v-4a4 4 0 0 1 4-4 4 4 0 0 1 2 4z" fill="#fbbc05"/><path d="M12 22a4 4 0 0 1-4-4v-2h4a4 4 0 0 1 4 4 4 4 0 0 1-4 2z" fill="#34a853"/><path d="M2 12a4 4 0 0 1 4-4h2v4a4 4 0 0 1-4 4 4 4 0 0 1-2-4z" fill="#4285f4"/></svg>`,
+    gemini: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#9333ea"><path d="M12 2C12 7.5 7.5 12 2 12C7.5 12 12 16.5 12 22C12 16.5 16.5 12 22 12C16.5 12 12 7.5 12 2Z" fill="#9333ea"/></svg>`,
+
+    // Meta
+    facebook: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>`,
+    instagram: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="2" y="2" width="20" height="20" rx="6" fill="none" stroke="#fff" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="none" stroke="#fff" stroke-width="2"/><circle cx="18" cy="6" r="1.5" fill="#fff"/></svg>`,
+    messenger: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="M12 2C6.5 2 2 6.1 2 11.2c0 2.9 1.4 5.5 3.6 7.2V22l3.4-1.9c1 .3 2 .4 3 .4 5.5 0 10-4.1 10-9.3S17.5 2 12 2zm1 12.3-3.2-3.4-6.3 3.4 6.9-7.3 3.3 3.4 6.2-3.5-6.9 7.4z"/></svg>`,
+    threads: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><circle cx="12" cy="12" r="9" fill="none" stroke="#fff" stroke-width="2"/><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="900" fill="#fff" font-family="sans-serif">@</text></svg>`,
+
+    // Music & Streaming
     spotify: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><circle cx="12" cy="12" r="10"/><path d="M7 9c3-1 7-1 10 1M8 12c2.5-.8 5.5-.8 8 .8M9 15c2-.5 4.5-.5 6 .6"/></svg>`,
+    deezer: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="3" y="13" width="2.5" height="6" rx="1"/><rect x="7" y="9" width="2.5" height="10" rx="1"/><rect x="11" y="5" width="2.5" height="14" rx="1"/><rect x="15" y="10" width="2.5" height="9" rx="1"/><rect x="19" y="14" width="2.5" height="5" rx="1"/></svg>`,
+    apple_music: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="M9 18V5l11-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zm11-2a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"/></svg>`,
     netflix: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#e50914"><rect x="3" y="3" width="18" height="18" rx="3" fill="#000"/><path d="M7 5v14l4-8v8h2V5l-4 8V5z" fill="#e50914"/></svg>`,
     youtube: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#ff0000"><rect x="2" y="4" width="20" height="16" rx="4" fill="#ff0000"/><polygon points="10 8 16 12 10 16 10 8" fill="#fff"/></svg>`,
+
+    // Education
+    alura: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="2" y="2" width="20" height="20" rx="4" fill="#0070f3"/><text x="12" y="16" text-anchor="middle" font-size="11" font-weight="900" fill="#fff" font-family="sans-serif">A</text></svg>`,
+    coursera: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="2" y="2" width="20" height="20" rx="4" fill="#0056d2"/><path d="M12 5a7 7 0 1 0 7 7h-3a4 4 0 1 1-4-4V5z" fill="#fff"/></svg>`,
+    descomplica: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="2" y="2" width="20" height="20" rx="4" fill="#00e676"/><text x="12" y="16" text-anchor="middle" font-size="11" font-weight="900" fill="#000" font-family="sans-serif">D</text></svg>`,
   };
 
-  if (icons[appId]) {
-    return `<div class="app-brand-icon" style="background: ${color};">${icons[appId]}</div>`;
+  const primaryDomain = (domains && domains.length > 0) ? domains[0] : (appId.includes('.') ? appId : `${appId}.com`);
+  const vectorSvg = icons[appId];
+
+  // Se tivermos ícone vetorial nativo de alta fidelidade
+  if (vectorSvg) {
+    return `<div class="app-brand-icon" style="background: ${color};">${vectorSvg}</div>`;
   }
 
-  // Fallback monogram
+  // Se tiver domínio, carrega favicon oficial da empresa em alta resolução (64px) com fallback gracioso
   const initials = (name || appId).substring(0, 2).toUpperCase();
-  return `<div class="app-brand-icon" style="background: ${color}; font-size: 0.75rem;">${escapeHtml(initials)}</div>`;
+  const fallbackHtml = `<span style="font-size:0.75rem; font-weight:800; color:#fff;">${escapeHtml(initials)}</span>`;
+
+  if (primaryDomain) {
+    const faviconUrl = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(primaryDomain)}&sz=64`;
+    return `
+      <div class="app-brand-icon" style="background: ${color}; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+        <img src="${faviconUrl}" alt="${escapeHtml(name)}" loading="lazy"
+             style="width: 18px; height: 18px; object-fit: contain; border-radius: 4px;"
+             onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />
+        <div style="display: none; align-items: center; justify-content: center; width: 100%; height: 100%;">
+          ${fallbackHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  return `<div class="app-brand-icon" style="background: ${color}; font-size: 0.75rem;">${fallbackHtml}</div>`;
 }
 
 // ==========================================================
@@ -2322,7 +2397,7 @@ async function loadDashboardTopWidgets() {
           const rank = i + 1;
           const rankClass = rank === 1 ? 'top1' : (rank === 2 ? 'top2' : (rank === 3 ? 'top3' : ''));
           const pct = Math.round((a.queries / maxQ) * 100);
-          const icon = getAppIconSvg(a.id, a.name, a.color);
+          const icon = getAppIconSvg(a.id, a.name, a.color, a.domains || []);
 
           return `
             <li class="top10-item">
@@ -2353,7 +2428,7 @@ async function loadDashboardTopWidgets() {
           listTopBlockedApps.innerHTML = dataApps.top_blocked.map((a, i) => {
             const rank = i + 1;
             const pct = Math.round((a.queries / maxB) * 100);
-            const icon = getAppIconSvg(a.id, a.name, a.color || '#ef4444');
+            const icon = getAppIconSvg(a.id, a.name, a.color || '#ef4444', a.domains || []);
 
             return `
               <li class="top10-item">
@@ -2689,7 +2764,7 @@ function renderPolicyCategoryCards() {
 
     const appItemsHtml = filteredApps.map(a => {
       const isBlocked = state.groupAppRules[a.id] === 'block';
-      const icon = getAppIconSvg(a.id, a.name, a.color);
+      const icon = getAppIconSvg(a.id, a.name, a.color, a.domains);
 
       return `
         <div class="app-item-row">
