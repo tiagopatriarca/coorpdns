@@ -125,8 +125,19 @@ func (s *Server) handleDNSRequest(w dns.ResponseWriter, req *dns.Msg) {
 
 	if isBlocking {
 		groupID := s.storage.GetClientGroupID(clientIP)
-		groupRules, _ := s.storage.GetGroupCategoryRules(groupID)
-		blocked, matchedRule = s.filter.CheckWithGroupCategories(domain, groupRules)
+		appRules, _ := s.storage.GetGroupApplicationRules(groupID)
+		catRules, _ := s.storage.GetGroupCategoryRules(groupID)
+		sched, _ := s.storage.GetGroupSchedule(groupID)
+
+		schedEnabled := sched != nil && sched.Enabled
+		schedMode := ""
+		schedInSlot := false
+		if schedEnabled {
+			schedMode = sched.Mode
+			schedInSlot = sched.IsInSchedule(time.Now())
+		}
+
+		blocked, matchedRule = s.filter.CheckPolicy(domain, appRules, catRules, schedEnabled, schedMode, schedInSlot)
 	}
 
 	if blocked {

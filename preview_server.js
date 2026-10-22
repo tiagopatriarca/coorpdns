@@ -166,8 +166,8 @@ const mockApplications = [
   { id: 'anghami', name: 'Anghami', category: 'music', color: '#8b5cf6', domains: ['anghami.com'] },
   { id: 'apple_music', name: 'Apple Music', category: 'music', color: '#fc3c44', domains: ['music.apple.com'] },
   { id: 'bandcamp', name: 'Bandcamp', category: 'music', color: '#1da0c3', domains: ['bandcamp.com'] },
-  { id: 'deezer', name: 'Deezer', category: 'music', color: '#ef5466', domains: ['deezer.com'] },
-  { id: 'spotify', name: 'Spotify', category: 'music', color: '#1db954', domains: ['spotify.com', 'scdn.co'] },
+  { id: 'deezer', name: 'Deezer', category: 'music', color: '#ef5466', domains: ['deezer.com', 'dzcdn.net', 'e-cdns-images.dzcdn.net', 'cdns-images.dzcdn.net'] },
+  { id: 'spotify', name: 'Spotify', category: 'music', color: '#1db954', domains: ['spotify.com', 'scdn.co', 'spotifycdn.com', 'spoti.fi', 'pscdn.co', 'audio-ak-spotify-com.akamaized.net', 'heads4-ak-spotify-com.akamaized.net'] },
 ];
 
 let mockGroupAppRules = {

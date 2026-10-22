@@ -104,9 +104,9 @@ var AvailableApplications = []ApplicationInfo{
 	{ID: "teams", Name: "Microsoft Teams", Category: "microsoft", Color: "#6264a7", Domains: []string{"teams.microsoft.com"}},
 
 	// Music
-	{ID: "apple_music", Name: "Apple Music", Category: "music", Color: "#fc3c44", Domains: []string{"music.apple.com"}},
-	{ID: "deezer", Name: "Deezer", Category: "music", Color: "#ef5466", Domains: []string{"deezer.com"}},
-	{ID: "spotify", Name: "Spotify", Category: "music", Color: "#1db954", Domains: []string{"spotify.com"}},
+	{ID: "apple_music", Name: "Apple Music", Category: "music", Color: "#fc3c44", Domains: []string{"music.apple.com", "apple-music.com", "aod.itunes.apple.com"}},
+	{ID: "deezer", Name: "Deezer", Category: "music", Color: "#ef5466", Domains: []string{"deezer.com", "dzcdn.net", "e-cdns-images.dzcdn.net", "cdns-images.dzcdn.net"}},
+	{ID: "spotify", Name: "Spotify", Category: "music", Color: "#1db954", Domains: []string{"spotify.com", "scdn.co", "spotifycdn.com", "spoti.fi", "pscdn.co", "audio-ak-spotify-com.akamaized.net", "heads4-ak-spotify-com.akamaized.net", "spotify.design", "byspotify.com"}},
 }
 
 var AvailableCategories = []CategoryInfo{
@@ -247,8 +247,38 @@ func GetCategoryInfo(catID string) CategoryInfo {
 	}
 }
 
-// Checa regras considerando as políticas de categorias do grupo do dispositivo
-func (e *Engine) CheckWithGroupCategories(domain string, groupRules map[string]string) (blocked bool, matchedRule string) {
+// DetectApplication identifica se um domínio pertence a uma aplicação catalogada
+func DetectApplication(domain string) string {
+	domain = CleanDomain(domain)
+	if domain == "" {
+		return ""
+	}
+
+	for _, app := range AvailableApplications {
+		for _, base := range app.Domains {
+			base = CleanDomain(base)
+			if domain == base || strings.HasSuffix(domain, "."+base) {
+				return app.ID
+			}
+		}
+	}
+	return ""
+}
+
+// CheckPolicy avalia todas as camadas de proteção para o grupo do cliente aplicando a hierarquia:
+// 1. Allowlist global (exceções)
+// 2. Horário / Agendamento (se habilitado)
+// 3. Aplicações individuais (group_application_rules) -> PRIORIDADE MÁXIMA SOBRE CATEGORIAS!
+// 4. Categorias (group_category_rules)
+// 5. Blocklists globais (listas de bloqueio)
+func (e *Engine) CheckPolicy(
+	domain string,
+	appRules map[string]string,
+	catRules map[string]string,
+	schedEnabled bool,
+	schedMode string,
+	schedInSlot bool,
+) (blocked bool, matchedRule string) {
 	domain = CleanDomain(domain)
 	if domain == "" {
 		return false, ""
@@ -270,10 +300,45 @@ func (e *Engine) CheckWithGroupCategories(domain string, groupRules map[string]s
 	}
 	e.mu.RUnlock()
 
-	// 2. Checa se o domínio cai em alguma categoria com regra definida no grupo
+	// 2. Avaliação de Agendamento (se habilitado)
+	if schedEnabled {
+		switch schedMode {
+		case "total_block":
+			if schedInSlot {
+				return true, "schedule:total_block"
+			}
+			return false, "schedule:outside_window"
+		case "total_allow":
+			if schedInSlot {
+				return false, "schedule:total_allow"
+			}
+		case "partial_block":
+			if !schedInSlot {
+				// Fora dos horários marcados, as regras de restrição não se aplicam
+				return false, "schedule:outside_window"
+			}
+			// Se estiver dentro da janela agendada, as regras abaixo são aplicadas
+		}
+	}
+
+	// 3. Regras de Aplicação (PRIORIDADE MÁXIMA - Granularidade sobrepõe Categoria)
+	appID := DetectApplication(domain)
+	if appID != "" {
+		if action, exists := appRules[appID]; exists {
+			if action == "block" {
+				// Bloqueio explícito da aplicação (ex: spotify, deezer) - SOBREPÕE QUALQUER CATEGORIA!
+				return true, "app:" + appID
+			} else if action == "allow" {
+				// Liberação explícita da aplicação - SOBREPÕE QUALQUER CATEGORIA!
+				return false, "allow-app:" + appID
+			}
+		}
+	}
+
+	// 4. Regras de Categorias
 	cat := e.CategorizeDomain(domain)
 	if cat != "" {
-		if action, exists := groupRules[cat]; exists {
+		if action, exists := catRules[cat]; exists {
 			if action == "block" {
 				return true, "category:" + cat
 			} else if action == "allow" {
@@ -283,8 +348,13 @@ func (e *Engine) CheckWithGroupCategories(domain string, groupRules map[string]s
 		}
 	}
 
-	// 3. Fallback para verificação de listas padrão
+	// 5. Fallback para verificação de listas padrão
 	return e.Check(domain)
+}
+
+// Checa regras considerando as políticas de categorias do grupo do dispositivo (retrocompatibilidade)
+func (e *Engine) CheckWithGroupCategories(domain string, groupRules map[string]string) (blocked bool, matchedRule string) {
+	return e.CheckPolicy(domain, nil, groupRules, false, "", false)
 }
 
 func (e *Engine) Check(domain string) (blocked bool, matchedRule string) {

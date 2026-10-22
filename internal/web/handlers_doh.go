@@ -84,8 +84,19 @@ func (s *Server) handleDoH(w http.ResponseWriter, r *http.Request) {
 	matchedRule := ""
 
 	if isBlocking {
-		groupRules, _ := s.storage.GetGroupCategoryRules(client.GroupID)
-		blocked, matchedRule = s.filter.CheckWithGroupCategories(domain, groupRules)
+		appRules, _ := s.storage.GetGroupApplicationRules(client.GroupID)
+		catRules, _ := s.storage.GetGroupCategoryRules(client.GroupID)
+		sched, _ := s.storage.GetGroupSchedule(client.GroupID)
+
+		schedEnabled := sched != nil && sched.Enabled
+		schedMode := ""
+		schedInSlot := false
+		if schedEnabled {
+			schedMode = sched.Mode
+			schedInSlot = sched.IsInSchedule(time.Now())
+		}
+
+		blocked, matchedRule = s.filter.CheckPolicy(domain, appRules, catRules, schedEnabled, schedMode, schedInSlot)
 	}
 
 	var respMsg *dns.Msg

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -65,6 +66,37 @@ type GroupSchedule struct {
 	Mode         string    `json:"mode"` // "total_block", "partial_block", "total_allow"
 	ScheduleJSON string    `json:"schedule_json"`
 	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+type ScheduleSlot struct {
+	Day   int    `json:"day"`
+	Start string `json:"start"`
+	End   string `json:"end"`
+}
+
+// IsInSchedule verifica se o momento informado está dentro dos intervalos configurados
+func (s *GroupSchedule) IsInSchedule(now time.Time) bool {
+	if s == nil || !s.Enabled {
+		return false
+	}
+	var slots []ScheduleSlot
+	if err := json.Unmarshal([]byte(s.ScheduleJSON), &slots); err != nil || len(slots) == 0 {
+		return false
+	}
+	day := int(now.Weekday()) // 0=Domingo, 1=Segunda, ..., 6=Sábado
+	cur := now.Format("15:04")
+	for _, slot := range slots {
+		if slot.Day == day {
+			end := slot.End
+			if end == "24:00" {
+				end = "24:01"
+			}
+			if cur >= slot.Start && cur <= end {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type DB struct {
