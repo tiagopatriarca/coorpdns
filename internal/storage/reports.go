@@ -3,6 +3,7 @@ package storage
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/coorpdns/coorpdns/internal/filter"
@@ -562,3 +563,201 @@ func (d *DB) GetGroupReport(groupID int64, days int, maxDomainsPerDevice int) (*
 
 	return result, nil
 }
+
+type DashboardAppStat struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Category string `json:"category"`
+	Color    string `json:"color"`
+	Queries  int64  `json:"queries"`
+	Blocked  int64  `json:"blocked"`
+}
+
+type DashboardCatStat struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Color   string `json:"color"`
+	Icon    string `json:"icon"`
+	Queries int64  `json:"queries"`
+	Blocked int64  `json:"blocked"`
+}
+
+type DashboardGroupStat struct {
+	ID             int64   `json:"id"`
+	Name           string  `json:"name"`
+	Color          string  `json:"color"`
+	ClientCount    int     `json:"client_count"`
+	TotalQueries   int64   `json:"total_queries"`
+	BlockedQueries int64   `json:"blocked_queries"`
+	BlockRate      float64 `json:"block_rate"`
+}
+
+func (d *DB) GetDashboardApplicationStats(days int, allowedGroupIDs []int64) ([]DashboardAppStat, []DashboardAppStat, error) {
+	domains, err := d.GetTopDomainsFiltered(days, 500, "", allowedGroupIDs)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	appMap := make(map[string]*DashboardAppStat)
+	for _, app := range filter.AvailableApplications {
+		appMap[app.ID] = &DashboardAppStat{
+			ID:       app.ID,
+			Name:     app.Name,
+			Category: app.Category,
+			Color:    app.Color,
+			Queries:  0,
+			Blocked:  0,
+		}
+	}
+
+	for _, dItem := range domains {
+		domainLower := strings.ToLower(dItem.Domain)
+		for _, app := range filter.AvailableApplications {
+			matched := false
+			for _, appDom := range app.Domains {
+				appDomLower := strings.ToLower(appDom)
+				if domainLower == appDomLower || strings.HasSuffix(domainLower, "."+appDomLower) {
+					if st, ok := appMap[app.ID]; ok {
+						st.Queries += dItem.TotalQueries
+						st.Blocked += dItem.BlockedQueries
+					}
+					matched = true
+					break
+				}
+			}
+			if matched {
+				break
+			}
+		}
+	}
+
+	var allUsed []DashboardAppStat
+	var allBlocked []DashboardAppStat
+	for _, st := range appMap {
+		if st.Queries > 0 {
+			allUsed = append(allUsed, *st)
+		}
+		if st.Blocked > 0 {
+			allBlocked = append(allBlocked, *st)
+		}
+	}
+
+	sort.Slice(allUsed, func(i, j int) bool {
+		return allUsed[i].Queries > allUsed[j].Queries
+	})
+	sort.Slice(allBlocked, func(i, j int) bool {
+		return allBlocked[i].Blocked > allBlocked[j].Blocked
+	})
+
+	if len(allUsed) > 10 {
+		allUsed = allUsed[:10]
+	}
+	if len(allBlocked) > 10 {
+		allBlocked = allBlocked[:10]
+	}
+
+	return allUsed, allBlocked, nil
+}
+
+func (d *DB) GetDashboardCategoryStats(days int, allowedGroupIDs []int64) ([]DashboardCatStat, []DashboardCatStat, error) {
+	domains, err := d.GetTopDomainsFiltered(days, 500, "", allowedGroupIDs)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	catMap := make(map[string]*DashboardCatStat)
+	for _, c := range filter.AvailableCategories {
+		catMap[c.ID] = &DashboardCatStat{
+			ID:      c.ID,
+			Name:    c.Name,
+			Color:   c.Color,
+			Icon:    c.Icon,
+			Queries: 0,
+			Blocked: 0,
+		}
+	}
+
+	for _, dItem := range domains {
+		catID, _, _, _ := filter.DetectCategory(dItem.Domain)
+		if st, ok := catMap[catID]; ok {
+			st.Queries += dItem.TotalQueries
+			st.Blocked += dItem.BlockedQueries
+		}
+	}
+
+	var allUsed []DashboardCatStat
+	var allBlocked []DashboardCatStat
+	for _, st := range catMap {
+		if st.Queries > 0 {
+			allUsed = append(allUsed, *st)
+		}
+		if st.Blocked > 0 {
+			allBlocked = append(allBlocked, *st)
+		}
+	}
+
+	sort.Slice(allUsed, func(i, j int) bool {
+		return allUsed[i].Queries > allUsed[j].Queries
+	})
+	sort.Slice(allBlocked, func(i, j int) bool {
+		return allBlocked[i].Blocked > allBlocked[j].Blocked
+	})
+
+	if len(allUsed) > 10 {
+		allUsed = allUsed[:10]
+	}
+	if len(allBlocked) > 10 {
+		allBlocked = allBlocked[:10]
+	}
+
+	return allUsed, allBlocked, nil
+}
+
+func (d *DB) GetDashboardGroupStats(days int, allowedGroupIDs []int64) ([]DashboardGroupStat, error) {
+	if days <= 0 || days > 180 {
+		days = 7
+	}
+	cutoffDate := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
+
+	whereClause := ""
+	var args []interface{}
+	args = append(args, cutoffDate)
+
+	if allowedGroupIDs != nil {
+		cond, condArgs := buildClientInGroupSubquery("c.ip", allowedGroupIDs)
+		whereClause = " AND " + cond
+		args = append(args, condArgs...)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT g.id, g.name, g.color, COUNT(DISTINCT c.ip) as client_count,
+		       COALESCE(SUM(d.total_queries), 0) as total,
+		       COALESCE(SUM(d.blocked_queries), 0) as blocked
+		FROM client_groups g
+		LEFT JOIN clients c ON c.group_id = g.id
+		LEFT JOIN daily_client_domain_stats d ON d.client_ip = c.ip AND d.date >= ?
+		WHERE 1=1 %s
+		GROUP BY g.id
+		ORDER BY total DESC, g.name ASC
+	`, whereClause)
+
+	rows, err := d.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var stats []DashboardGroupStat
+	for rows.Next() {
+		var s DashboardGroupStat
+		if err := rows.Scan(&s.ID, &s.Name, &s.Color, &s.ClientCount, &s.TotalQueries, &s.BlockedQueries); err != nil {
+			continue
+		}
+		if s.TotalQueries > 0 {
+			s.BlockRate = float64(s.BlockedQueries) / float64(s.TotalQueries) * 100.0
+		}
+		stats = append(stats, s)
+	}
+	return stats, nil
+}
+

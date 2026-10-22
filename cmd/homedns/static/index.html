@@ -7,8 +7,8 @@
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20261022_4">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css?v=20261022_5">
 </head>
 <body>
   <!-- TELA DE LOGIN / AUTENTICAÇÃO -->
@@ -52,9 +52,10 @@
     </div>
   </div>
 
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
   <div class="app-layout" id="appLayout">
     <!-- Barra Lateral de Navegação -->
-    <aside class="sidebar">
+    <aside class="sidebar" id="sidebarNav">
       <div class="brand">
         <div class="brand-logo">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -66,6 +67,7 @@
           <h2>CoorpDNS</h2>
           <span class="badge-status online" id="globalStatusIndicator">Ativo</span>
         </div>
+        <button class="btn-sidebar-close" id="btnCloseMobileSidebar" aria-label="Fechar Menu">&times;</button>
       </div>
 
       <div class="sidebar-search-box">
@@ -147,9 +149,18 @@
     <main class="main-content">
       <!-- Cabeçalho Superior -->
       <header class="topbar">
-        <div class="page-title">
-          <h1 id="pageTitle">Painel de Controle</h1>
-          <p id="pageSubtitle">Proteção de rede e bloqueio de anúncios ativo para todos os dispositivos Wi-Fi</p>
+        <div class="topbar-left">
+          <button class="btn-mobile-menu" id="btnToggleMobileSidebar" aria-label="Abrir Menu">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+          <div class="page-title">
+            <h1 id="pageTitle">Painel de Controle</h1>
+            <p id="pageSubtitle">Proteção de rede e bloqueio de anúncios ativo para todos os dispositivos Wi-Fi</p>
+          </div>
         </div>
         <div class="header-actions">
           <!-- Botão Liga/Desliga Rápido com Pausa -->
@@ -216,10 +227,10 @@
                 </span>
               </div>
               <div class="hero-chart-controls">
-                <select id="selectChartTimeRange" class="form-select" style="font-size: 0.78rem; padding: 0.25rem 0.6rem; height: auto;">
+                <select id="selectChartTimeRange" class="form-select hero-range-select" style="font-size: 0.8rem; padding: 0.35rem 0.75rem; height: auto;">
                   <option value="24h">Últimas 24 horas</option>
                   <option value="7d">Últimos 7 dias</option>
-                  <option value="today">Hoje</option>
+                  <option value="30d">Últimos 30 dias</option>
                 </select>
                 <div class="hero-chart-legend">
                   <span><span class="legend-dot green"></span>Consultas</span>
@@ -1559,6 +1570,6 @@
     </div>
   </div>
 
-  <script src="js/app.js?v=20261022_4"></script>
+  <script src="js/app.js?v=20261022_5"></script>
 </body>
 </html>

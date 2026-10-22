@@ -515,31 +515,43 @@ let currentSessionUser = null;
     return res.end(JSON.stringify(groupStats));
   }
 
-  // Gráfico de 24 Horas Estilo Monitoramento
+  // Gráfico de Monitoramento (24h, 7d, 30d)
   if (pathname === '/api/v1/stats/timeline-24h') {
-    const hours = ['18:00', '20:00', '22:00', '00:00', '02:00', '04:00', '06:00', '08:00', '10:00', '12:00', '14:00', '16:00', '18:00'];
-    const data = hours.map((hour, idx) => {
-      let queries = 20;
-      let blocked = 0;
-      if (hour === '12:00') {
-        queries = 1350;
-        blocked = 8;
-      } else if (hour === '10:00') {
-        queries = 420;
-        blocked = 2;
-      } else if (hour === '14:00') {
-        queries = 380;
-        blocked = 1;
-      } else {
-        queries = Math.floor(15 + Math.random() * 25);
-        blocked = Math.random() > 0.7 ? 1 : 0;
+    const range = (parsedUrl.query && parsedUrl.query.range) || '24h';
+    let data = [];
+    if (range === '7d') {
+      const days = ['16/10', '17/10', '18/10', '19/10', '20/10', '21/10', '22/10'];
+      data = days.map((d, i) => ({
+        time: d,
+        queries: Math.floor(35000 + Math.sin(i * 0.8) * 12000 + (i === 6 ? 15000 : 0)),
+        blocked: Math.floor(1200 + Math.sin(i * 0.8) * 400 + (i === 6 ? 600 : 0))
+      }));
+    } else if (range === '30d') {
+      for (let i = 29; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dayStr = String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0');
+        data.push({
+          time: dayStr,
+          queries: Math.floor(32000 + Math.sin(i * 0.3) * 15000 + (i % 7 < 5 ? 10000 : 2000)),
+          blocked: Math.floor(1000 + Math.sin(i * 0.3) * 500 + (i % 7 < 5 ? 400 : 50))
+        });
       }
-      return {
-        time: hour,
-        queries: queries,
-        blocked: blocked
-      };
-    });
+    } else {
+      for (let h = 23; h >= 0; h--) {
+        const d = new Date();
+        d.setHours(d.getHours() - h);
+        const hrStr = String(d.getHours()).padStart(2, '0') + ':00';
+        const isWorkHour = d.getHours() >= 8 && d.getHours() <= 18;
+        const q = isWorkHour ? Math.floor(1200 + Math.random() * 800) : Math.floor(80 + Math.random() * 120);
+        const b = isWorkHour ? Math.floor(40 + Math.random() * 30) : Math.floor(2 + Math.random() * 5);
+        data.push({
+          time: hrStr,
+          queries: q,
+          blocked: b
+        });
+      }
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify(data));
   }

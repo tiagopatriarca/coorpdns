@@ -49,6 +49,8 @@ document.addEventListener('DOMContentLoaded', () => {
   setupRulesForm();
   setupPoliciesControls();
   setupSidebarSearch();
+  setupMobileSidebar();
+  setupChartControls();
 
   // Validação de autenticação inicial
   checkAuth();
@@ -228,7 +230,7 @@ async function refreshDashboard() {
     document.getElementById('cardActiveClients').textContent = stats.active_clients.toLocaleString();
 
     // Atualiza novos componentes visuais avançados
-    renderHeroMonitoringChart();
+    renderHeroMonitoringChart(state.chartTimeRange || '24h');
     renderDeviceDonut();
     loadDashboardTopWidgets();
     loadDashboardGroupsSummary();
@@ -2260,42 +2262,70 @@ function getAppIconSvg(appId, name, color = '#3b82f6', domains = []) {
 // ==========================================================
 // Dashboard: Gráfico de Monitoramento 24h & Donut de Dispositivos
 // ==========================================================
-async function renderHeroMonitoringChart() {
+async function renderHeroMonitoringChart(timeRange) {
   const svg = document.getElementById('heroTimelineSvg');
   if (!svg) return;
 
+  const range = timeRange || state.chartTimeRange || '24h';
+  state.chartTimeRange = range;
+
+  const rangeSelect = document.getElementById('selectChartTimeRange');
+  if (rangeSelect && rangeSelect.value !== range) {
+    rangeSelect.value = range;
+  }
+
   try {
-    const res = await fetch(`${API_BASE}/api/v1/stats/timeline-24h`);
+    const res = await fetch(`${API_BASE}/api/v1/stats/timeline-24h?range=${encodeURIComponent(range)}`);
     if (!res.ok) return;
     const data = await res.json();
 
     const badge = document.getElementById('chartBlockedSummary');
-    const totalBlocked = data.reduce((acc, d) => acc + (d.blocked || 0), 0);
-    if (badge) badge.textContent = `${totalBlocked} bloqueadas`;
+    const totalBlocked = (data || []).reduce((acc, d) => acc + (d.blocked || 0), 0);
+    const totalQueries = (data || []).reduce((acc, d) => acc + (d.queries || 0), 0);
+    if (badge) {
+      badge.textContent = `${totalBlocked.toLocaleString('pt-BR')} bloqueadas`;
+      badge.title = `${totalQueries.toLocaleString('pt-BR')} consultas totais registradas`;
+    }
 
     const width = 850;
     const height = 210;
-    const paddingLeft = 35;
+    const paddingLeft = 40;
     const paddingRight = 20;
     const paddingTop = 20;
     const paddingBottom = 30;
     const plotW = width - paddingLeft - paddingRight;
     const plotH = height - paddingTop - paddingBottom;
 
-    const maxQ = Math.max(...data.map(d => d.queries), 1500);
-    const maxVal = Math.ceil(maxQ * 1.1);
+    if (!data || data.length === 0) {
+      svg.innerHTML = `
+        <text x="${width / 2}" y="${height / 2}" text-anchor="middle" fill="#64748b" font-size="12" font-family="var(--font-sans)">
+          Nenhuma consulta registrada para o período selecionado
+        </text>
+      `;
+      return;
+    }
+
+    const maxQ = Math.max(...data.map(d => Number(d.queries) || 0), 0);
+    const maxB = Math.max(...data.map(d => Number(d.blocked) || 0), 0);
+    const peak = Math.max(maxQ, maxB, 5);
+    const maxVal = Math.ceil(peak * 1.15);
     const stepX = plotW / Math.max(data.length - 1, 1);
 
     const points = data.map((d, i) => {
+      const q = Number(d.queries) || 0;
+      const b = Number(d.blocked) || 0;
       const x = paddingLeft + i * stepX;
-      const yQ = paddingTop + plotH - (d.queries / maxVal) * plotH;
-      const yB = paddingTop + plotH - ((d.blocked || 0) / maxVal) * plotH;
-      return { x, yQ, yB, ...d };
+      const yQ = paddingTop + plotH - (q / maxVal) * plotH;
+      const yB = paddingTop + plotH - (b / maxVal) * plotH;
+      return { x, yQ, yB, queries: q, blocked: b, time: d.time };
     });
 
     // Curva suavizada (Catmull-Rom para Bézier)
     function buildSmoothPath(pts, yKey) {
-      if (pts.length < 2) return '';
+      if (pts.length < 2) {
+        if (pts.length === 1) return `M ${pts[0].x.toFixed(1)},${pts[0][yKey].toFixed(1)}`;
+        return '';
+      }
       let path = `M ${pts[0].x.toFixed(1)},${pts[0][yKey].toFixed(1)}`;
       for (let i = 0; i < pts.length - 1; i++) {
         const p0 = pts[Math.max(i - 1, 0)];
@@ -2316,30 +2346,58 @@ async function renderHeroMonitoringChart() {
     const qLine = buildSmoothPath(points, 'yQ');
     const bLine = buildSmoothPath(points, 'yB');
     const baselineY = paddingTop + plotH;
-    const qArea = `${qLine} L ${points[points.length - 1].x.toFixed(1)},${baselineY} L ${points[0].x.toFixed(1)},${baselineY} Z`;
+    const lastX = points[points.length - 1].x.toFixed(1);
+    const firstX = points[0].x.toFixed(1);
+    const qArea = `${qLine} L ${lastX},${baselineY} L ${firstX},${baselineY} Z`;
 
-    // Linhas de grade e marcadores X
+    // Linhas de grade e marcadores Y
     let gridLines = '';
-    let xLabels = '';
     const yGridLevels = [0, 0.33, 0.66, 1];
     yGridLevels.forEach(lvl => {
       const y = paddingTop + plotH * (1 - lvl);
       const val = Math.round(maxVal * lvl);
-      const labelText = val >= 1000 ? (val / 1000).toFixed(1) + 'k' : val;
+      let labelText = val;
+      if (val >= 1000000) {
+        labelText = (val / 1000000).toFixed(1) + 'M';
+      } else if (val >= 1000) {
+        labelText = (val / 1000).toFixed(1) + 'k';
+      }
       gridLines += `<line x1="${paddingLeft}" y1="${y}" x2="${width - paddingRight}" y2="${y}" stroke="rgba(255,255,255,0.04)" stroke-dasharray="3,3"/>`;
       gridLines += `<text x="${paddingLeft - 8}" y="${y + 4}" text-anchor="end" fill="#64748b" font-size="10" font-family="var(--font-mono)">${labelText}</text>`;
     });
 
+    // Rótulos do eixo X (amostragem inteligente)
+    let xLabels = '';
+    const count = points.length;
+    let labelInterval = 1;
+    if (count > 20) {
+      labelInterval = Math.ceil(count / 6);
+    } else if (count > 10) {
+      labelInterval = 2;
+    }
+
     points.forEach((p, idx) => {
-      if (idx % 2 === 0 || idx === points.length - 1) {
-        xLabels += `<text x="${p.x}" y="${height - 8}" text-anchor="middle" fill="#64748b" font-size="10" font-family="var(--font-mono)">${p.time}</text>`;
+      if (idx % labelInterval === 0 || idx === count - 1) {
+        xLabels += `<text x="${p.x}" y="${height - 8}" text-anchor="middle" fill="#64748b" font-size="10" font-family="var(--font-mono)">${escapeHtml(p.time)}</text>`;
       }
+    });
+
+    // Pontos visíveis para hover
+    let interactivePoints = '';
+    points.forEach((p, idx) => {
+      interactivePoints += `
+        <g class="chart-point-marker" data-idx="${idx}">
+          <circle cx="${p.x}" cy="${p.yQ}" r="3.2" fill="#10b981" stroke="#07090e" stroke-width="1.5" />
+          <circle cx="${p.x}" cy="${p.yB}" r="2.8" fill="#ef4444" stroke="#07090e" stroke-width="1.5" />
+        </g>
+      `;
     });
 
     svg.innerHTML = `
       <defs>
         <linearGradient id="heroGreenGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#10b981" stop-opacity="0.38"/>
+          <stop offset="0%" stop-color="#10b981" stop-opacity="0.35"/>
+          <stop offset="85%" stop-color="#10b981" stop-opacity="0.04"/>
           <stop offset="100%" stop-color="#10b981" stop-opacity="0.00"/>
         </linearGradient>
       </defs>
@@ -2347,11 +2405,64 @@ async function renderHeroMonitoringChart() {
       <path d="${qArea}" fill="url(#heroGreenGrad)"/>
       <path d="${qLine}" fill="none" stroke="#10b981" stroke-width="2.2" stroke-linecap="round"/>
       <path d="${bLine}" fill="none" stroke="#ef4444" stroke-width="1.8" stroke-linecap="round"/>
+      ${interactivePoints}
       ${xLabels}
     `;
+
+    setupChartTooltip(svg, points);
   } catch (err) {
     console.warn('Erro ao desenhar gráfico hero:', err);
   }
+}
+
+function setupChartTooltip(svg, points) {
+  const container = document.getElementById('dashboardHeroChart');
+  if (!container) return;
+
+  let tooltip = document.getElementById('heroChartInteractiveTooltip');
+  if (!tooltip) {
+    tooltip = document.createElement('div');
+    tooltip.id = 'heroChartInteractiveTooltip';
+    tooltip.className = 'chart-hover-tooltip';
+    container.appendChild(tooltip);
+  }
+
+  svg.onpointermove = (e) => {
+    const rect = svg.getBoundingClientRect();
+    const clientX = e.clientX - rect.left;
+    const ratioX = clientX / rect.width;
+    const svgX = ratioX * 850;
+
+    let closest = points[0];
+    let minDist = Infinity;
+    points.forEach(p => {
+      const dist = Math.abs(p.x - svgX);
+      if (dist < minDist) {
+        minDist = dist;
+        closest = p;
+      }
+    });
+
+    if (closest) {
+      const pct = closest.queries > 0 ? ((closest.blocked / closest.queries) * 100).toFixed(1) : '0.0';
+      tooltip.innerHTML = `
+        <div class="tooltip-time">${escapeHtml(closest.time)}</div>
+        <div class="tooltip-row"><span class="t-dot green"></span> Consultas: <strong>${closest.queries.toLocaleString('pt-BR')}</strong></div>
+        <div class="tooltip-row"><span class="t-dot red"></span> Bloqueadas: <strong>${closest.blocked.toLocaleString('pt-BR')}</strong> <span class="t-pct">(${pct}%)</span></div>
+      `;
+      tooltip.style.display = 'block';
+
+      const tooltipX = (closest.x / 850) * rect.width;
+      const tooltipY = (closest.yQ / 210) * rect.height;
+      const left = Math.min(Math.max(tooltipX - 70, 10), rect.width - 160);
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${Math.max(tooltipY - 65, 8)}px`;
+    }
+  };
+
+  svg.onpointerleave = () => {
+    if (tooltip) tooltip.style.display = 'none';
+  };
 }
 
 async function renderDeviceDonut() {
@@ -2384,8 +2495,8 @@ async function renderDeviceDonut() {
 
 async function loadDashboardTopWidgets() {
   try {
-    // 1. Aplicações
-    const resApps = await fetch(`${API_BASE}/api/v1/stats/applications`);
+    // 1. Aplicações (últimos 7 dias de dados reais)
+    const resApps = await fetch(`${API_BASE}/api/v1/stats/applications?days=7`);
     if (resApps.ok) {
       const dataApps = await resApps.json();
       const listTopApps = document.getElementById('listTopApps');
@@ -2407,7 +2518,7 @@ async function loadDashboardTopWidgets() {
                 ${icon}
                 <span class="top10-name" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
               </div>
-              <span class="top10-count">${a.queries}</span>
+              <span class="top10-count">${(a.queries || 0).toLocaleString('pt-BR')}</span>
             </li>
           `;
         }).join('');
@@ -2438,7 +2549,7 @@ async function loadDashboardTopWidgets() {
                   ${icon}
                   <span class="top10-name" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
                 </div>
-                <span class="top10-count" style="color: #f87171;">${a.queries}</span>
+                <span class="top10-count" style="color: #f87171;">${(a.queries || 0).toLocaleString('pt-BR')}</span>
               </li>
             `;
           }).join('');
@@ -2446,8 +2557,8 @@ async function loadDashboardTopWidgets() {
       }
     }
 
-    // 2. Categorias
-    const resCats = await fetch(`${API_BASE}/api/v1/stats/categories`);
+    // 2. Categorias (últimos 7 dias de dados reais)
+    const resCats = await fetch(`${API_BASE}/api/v1/stats/categories?days=7`);
     if (resCats.ok) {
       const dataCats = await resCats.json();
       const listTopCats = document.getElementById('listTopCategories');
@@ -2463,9 +2574,9 @@ async function loadDashboardTopWidgets() {
               <div class="top10-bar-bg" style="width: ${pct}%;"></div>
               <div class="top10-left-group">
                 <span class="top10-rank ${rank === 1 ? 'top1' : (rank === 2 ? 'top2' : '')}">${rank}</span>
-                <span class="top10-name">${escapeHtml(c.name)}</span>
+                <span class="top10-name" title="${escapeHtml(c.name)}">${escapeHtml(c.name)}</span>
               </div>
-              <span class="top10-count">${c.queries}</span>
+              <span class="top10-count">${(c.queries || 0).toLocaleString('pt-BR')}</span>
             </li>
           `;
         }).join('');
@@ -2491,9 +2602,9 @@ async function loadDashboardTopWidgets() {
                 <div class="top10-bar-bg blocked" style="width: ${pct}%;"></div>
                 <div class="top10-left-group">
                   <span class="top10-rank top1" style="background: rgba(239, 68, 68, 0.2); color: #f87171;">${rank}</span>
-                  <span class="top10-name">${escapeHtml(c.name)}</span>
+                  <span class="top10-name" title="${escapeHtml(c.name)}">${escapeHtml(c.name)}</span>
                 </div>
-                <span class="top10-count" style="color: #f87171;">${c.queries}</span>
+                <span class="top10-count" style="color: #f87171;">${(c.queries || 0).toLocaleString('pt-BR')}</span>
               </li>
             `;
           }).join('');
@@ -3167,6 +3278,55 @@ function showToast(message) {
     toast.classList.remove('show');
   }, 3200);
 }
+
+// ==========================================================
+// Controles de Responsividade Mobile (Menu Lateral & Drawer)
+// ==========================================================
+function setupMobileSidebar() {
+  const btnToggle = document.getElementById('btnToggleMobileSidebar');
+  const btnClose = document.getElementById('btnCloseMobileSidebar');
+  const backdrop = document.getElementById('sidebarBackdrop');
+  const sidebar = document.getElementById('sidebarNav');
+
+  function openSidebar() {
+    if (sidebar) sidebar.classList.add('mobile-open');
+    if (backdrop) backdrop.classList.add('active');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeSidebar() {
+    if (sidebar) sidebar.classList.remove('mobile-open');
+    if (backdrop) backdrop.classList.remove('active');
+    document.body.style.overflow = '';
+  }
+
+  if (btnToggle) btnToggle.addEventListener('click', openSidebar);
+  if (btnClose) btnClose.addEventListener('click', closeSidebar);
+  if (backdrop) backdrop.addEventListener('click', closeSidebar);
+
+  // Fecha no clique dos itens de navegação quando em telas menores
+  document.querySelectorAll('.nav-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (window.innerWidth <= 900) {
+        closeSidebar();
+      }
+    });
+  });
+}
+
+// ==========================================================
+// Controles de Intervalo do Gráfico de Monitoramento
+// ==========================================================
+function setupChartControls() {
+  const selectRange = document.getElementById('selectChartTimeRange');
+  if (selectRange) {
+    selectRange.addEventListener('change', (e) => {
+      state.chartTimeRange = e.target.value;
+      renderHeroMonitoringChart(e.target.value);
+    });
+  }
+}
+
 
 
 

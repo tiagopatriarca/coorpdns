@@ -1006,24 +1006,21 @@ func (s *Server) handleStatsApplications(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	topUsed := []map[string]interface{}{
-		{"id": "whatsapp", "name": "WhatsApp", "category": "messaging", "queries": 131, "blocked": 0, "color": "#25d366"},
-		{"id": "teams", "name": "Microsoft Teams", "category": "microsoft", "queries": 38, "blocked": 0, "color": "#6264a7"},
-		{"id": "outlook", "name": "Outlook", "category": "microsoft", "queries": 31, "blocked": 0, "color": "#0072c6"},
-		{"id": "skype", "name": "Skype", "category": "messaging", "queries": 26, "blocked": 0, "color": "#00aff0"},
-		{"id": "office_365", "name": "Office 365", "category": "microsoft", "queries": 22, "blocked": 0, "color": "#d83b01"},
-		{"id": "itau", "name": "Itaú", "category": "bank", "queries": 11, "blocked": 0, "color": "#ea580c"},
-		{"id": "bing", "name": "Bing", "category": "microsoft", "queries": 10, "blocked": 0, "color": "#008373"},
-		{"id": "bradesco", "name": "Bradesco", "category": "bank", "queries": 4, "blocked": 0, "color": "#dc2626"},
-		{"id": "zoom", "name": "Zoom", "category": "messaging", "queries": 4, "blocked": 0, "color": "#2d8cff"},
-		{"id": "chatgpt", "name": "ChatGPT", "category": "ai", "queries": 2, "blocked": 0, "color": "#10a37f"},
+	days := 7
+	if d, err := strconv.Atoi(r.URL.Query().Get("days")); err == nil && d > 0 {
+		days = d
 	}
 
-	topBlocked := []map[string]interface{}{
-		{"id": "bet365", "name": "Bet365", "category": "betting", "queries": 19, "color": "#006b52"},
-		{"id": "betano", "name": "Betano", "category": "betting", "queries": 15, "color": "#f95900"},
-		{"id": "blaze", "name": "Blaze", "category": "betting", "queries": 12, "color": "#ef4444"},
-		{"id": "1xbet", "name": "1xBet", "category": "betting", "queries": 9, "color": "#105a96"},
+	topUsed, topBlocked, err := s.storage.GetDashboardApplicationStats(days, u.AllowedGroups)
+	if err != nil {
+		jsonResponse(w, http.StatusOK, map[string]interface{}{"top_used": []interface{}{}, "top_blocked": []interface{}{}})
+		return
+	}
+	if topUsed == nil {
+		topUsed = []storage.DashboardAppStat{}
+	}
+	if topBlocked == nil {
+		topBlocked = []storage.DashboardAppStat{}
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
@@ -1038,22 +1035,21 @@ func (s *Server) handleStatsCategories(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	topUsed := []map[string]interface{}{
-		{"id": "social", "name": "Redes Sociais", "queries": 65, "color": "#3b82f6"},
-		{"id": "ads", "name": "Anúncios", "queries": 39, "color": "#14b8a6"},
-		{"id": "messaging", "name": "Comunicação & Chat", "queries": 35, "color": "#22c55e"},
-		{"id": "bank", "name": "Bancos & Finanças", "queries": 28, "color": "#3b82f6"},
-		{"id": "productivity", "name": "Produtividade & Office", "queries": 24, "color": "#d83b01"},
-		{"id": "streaming", "name": "Streaming de Vídeo & Áudio", "queries": 19, "color": "#ec4899"},
-		{"id": "ai", "name": "Inteligência Artificial", "queries": 14, "color": "#8b5cf6"},
-		{"id": "search", "name": "Mecanismos de Busca", "queries": 12, "color": "#008373"},
+	days := 7
+	if d, err := strconv.Atoi(r.URL.Query().Get("days")); err == nil && d > 0 {
+		days = d
 	}
 
-	topBlocked := []map[string]interface{}{
-		{"id": "betting", "name": "Apostas & Jogos de Azar", "queries": 48, "color": "#f59e0b"},
-		{"id": "ads", "name": "Anúncios & Publicidade", "queries": 39, "color": "#14b8a6"},
-		{"id": "adult", "name": "Conteúdo Adulto", "queries": 18, "color": "#ef4444"},
-		{"id": "trackers", "name": "Rastreadores & Telemetria", "queries": 14, "color": "#6366f1"},
+	topUsed, topBlocked, err := s.storage.GetDashboardCategoryStats(days, u.AllowedGroups)
+	if err != nil {
+		jsonResponse(w, http.StatusOK, map[string]interface{}{"top_used": []interface{}{}, "top_blocked": []interface{}{}})
+		return
+	}
+	if topUsed == nil {
+		topUsed = []storage.DashboardCatStat{}
+	}
+	if topBlocked == nil {
+		topBlocked = []storage.DashboardCatStat{}
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
@@ -1093,30 +1089,20 @@ func (s *Server) handleStatsGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	groups, err := s.storage.GetGroups()
+	days := 7
+	if d, err := strconv.Atoi(r.URL.Query().Get("days")); err == nil && d > 0 {
+		days = d
+	}
+
+	groupStats, err := s.storage.GetDashboardGroupStats(days, u.AllowedGroups)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	var groupStats []map[string]interface{}
-	for _, g := range groups {
-		totalQ := int64(g.ClientCount*2800 + 450)
-		blockedQ := int64(float64(totalQ) * 0.22)
-		rate := 0.0
-		if totalQ > 0 {
-			rate = float64(blockedQ) / float64(totalQ) * 100.0
-		}
-		groupStats = append(groupStats, map[string]interface{}{
-			"id":              g.ID,
-			"name":            g.Name,
-			"color":           g.Color,
-			"client_count":    g.ClientCount,
-			"total_queries":   totalQ,
-			"blocked_queries": blockedQ,
-			"block_rate":      rate,
-		})
+	if groupStats == nil {
+		groupStats = []storage.DashboardGroupStat{}
 	}
+
 	jsonResponse(w, http.StatusOK, groupStats)
 }
 
@@ -1126,27 +1112,60 @@ func (s *Server) handleStatsTimeline24h(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	hours := []string{"18:00", "20:00", "22:00", "00:00", "02:00", "04:00", "06:00", "08:00", "10:00", "12:00", "14:00", "16:00", "18:00"}
-	var data []map[string]interface{}
-	for _, hour := range hours {
-		q := 20
-		b := 0
-		if hour == "12:00" {
-			q = 1350
-			b = 8
-		} else if hour == "10:00" {
-			q = 420
-			b = 2
-		} else if hour == "14:00" {
-			q = 380
-			b = 1
-		}
-		data = append(data, map[string]interface{}{
-			"time":    hour,
-			"queries": q,
-			"blocked": b,
-		})
+	rangeParam := r.URL.Query().Get("range")
+	if rangeParam == "" {
+		rangeParam = r.URL.Query().Get("period")
 	}
+
+	var data []map[string]interface{}
+	if rangeParam == "7d" || rangeParam == "7" {
+		pts, err := s.storage.GetTimelineFiltered(7, u.AllowedGroups)
+		if err == nil {
+			for _, p := range pts {
+				label := p.Date
+				if t, err := time.Parse("2006-01-02", p.Date); err == nil {
+					label = t.Format("02/01")
+				}
+				data = append(data, map[string]interface{}{
+					"time":    label,
+					"queries": p.TotalQueries,
+					"blocked": p.BlockedQueries,
+				})
+			}
+		}
+	} else if rangeParam == "30d" || rangeParam == "30" {
+		pts, err := s.storage.GetTimelineFiltered(30, u.AllowedGroups)
+		if err == nil {
+			for _, p := range pts {
+				label := p.Date
+				if t, err := time.Parse("2006-01-02", p.Date); err == nil {
+					label = t.Format("02/01")
+				}
+				data = append(data, map[string]interface{}{
+					"time":    label,
+					"queries": p.TotalQueries,
+					"blocked": p.BlockedQueries,
+				})
+			}
+		}
+	} else {
+		// Padrão: 24 Horas
+		pts, err := s.storage.GetActivity24hFiltered(u.AllowedGroups)
+		if err == nil {
+			for _, p := range pts {
+				data = append(data, map[string]interface{}{
+					"time":    p.Date,
+					"queries": p.TotalQueries,
+					"blocked": p.BlockedQueries,
+				})
+			}
+		}
+	}
+
+	if data == nil {
+		data = []map[string]interface{}{}
+	}
+
 	jsonResponse(w, http.StatusOK, data)
 }
 
