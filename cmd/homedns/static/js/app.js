@@ -49,6 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupRulesForm();
   setupPoliciesControls();
   setupSidebarSearch();
+  setupSidebarCollapse();
   setupMobileSidebar();
   setupChartControls();
 
@@ -3280,6 +3281,33 @@ function showToast(message) {
 }
 
 // ==========================================================
+// Controles de Recolhimento da Barra Lateral (Desktop & Tablet)
+// Permite visualização ampla e limpa dos dados da Dashboard
+// ==========================================================
+function setupSidebarCollapse() {
+  const btnToggle = document.getElementById('btnToggleSidebar');
+  const sidebar = document.getElementById('sidebarNav');
+  const layout = document.getElementById('appLayout');
+
+  // Recupera preferência do usuário ou inicia recolhido se a tela for menor que 1280px para máxima visualização
+  const savedPref = localStorage.getItem('coorp_sidebar_collapsed');
+  const shouldCollapse = savedPref === 'true' || (savedPref === null && window.innerWidth <= 1280 && window.innerWidth > 768);
+
+  if (sidebar && shouldCollapse) {
+    sidebar.classList.add('collapsed');
+    if (layout) layout.classList.add('sidebar-collapsed');
+  }
+
+  if (btnToggle && sidebar) {
+    btnToggle.addEventListener('click', () => {
+      const isCollapsed = sidebar.classList.toggle('collapsed');
+      if (layout) layout.classList.toggle('sidebar-collapsed', isCollapsed);
+      localStorage.setItem('coorp_sidebar_collapsed', isCollapsed);
+    });
+  }
+}
+
+// ==========================================================
 // Controles de Responsividade Mobile (Menu Lateral & Drawer)
 // ==========================================================
 function setupMobileSidebar() {
@@ -3307,7 +3335,7 @@ function setupMobileSidebar() {
   // Fecha no clique dos itens de navegação quando em telas menores
   document.querySelectorAll('.nav-item').forEach(btn => {
     btn.addEventListener('click', () => {
-      if (window.innerWidth <= 900) {
+      if (window.innerWidth <= 768) {
         closeSidebar();
       }
     });

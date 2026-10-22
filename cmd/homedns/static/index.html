@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20261022_5">
+  <link rel="stylesheet" href="css/style.css?v=20261022_6">
 </head>
 <body>
   <!-- TELA DE LOGIN / AUTENTICAÇÃO -->
@@ -79,39 +79,39 @@
       </div>
 
       <nav class="nav-menu">
-        <button class="nav-item active" data-tab="dashboard">
+        <button class="nav-item active" data-tab="dashboard" title="Dashboard">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
-          Dashboard
+          <span class="nav-label">Dashboard</span>
         </button>
-        <button class="nav-item" id="navItemPolicies" data-tab="policies">
+        <button class="nav-item" id="navItemPolicies" data-tab="policies" title="Políticas & Grupos">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><circle cx="12" cy="11" r="3"/></svg>
-          Políticas &amp; Grupos
+          <span class="nav-label">Políticas &amp; Grupos</span>
           <span class="tab-badge" style="background:#f59e0b; color:#000; font-weight:700;">Novo</span>
         </button>
-        <button class="nav-item highlight-tab" data-tab="reports">
+        <button class="nav-item highlight-tab" data-tab="reports" title="Relatórios (180d)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
-          Relatórios (180d)
+          <span class="nav-label">Relatórios (180d)</span>
           <span class="tab-badge">Novo</span>
         </button>
-        <button class="nav-item" data-tab="logs">
+        <button class="nav-item" data-tab="logs" title="Log em Tempo Real">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
-          Log em Tempo Real
+          <span class="nav-label">Log em Tempo Real</span>
         </button>
-        <button class="nav-item" data-tab="clients">
+        <button class="nav-item" data-tab="clients" title="Dispositivos">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="12" x="3" y="4" rx="2"/><path d="M2 20h20"/></svg>
-          Dispositivos
+          <span class="nav-label">Dispositivos</span>
         </button>
-        <button class="nav-item" id="navItemRules" data-tab="rules">
+        <button class="nav-item" id="navItemRules" data-tab="rules" title="Regras & Listas">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"/><circle cx="7" cy="7" r=".5" fill="currentColor"/></svg>
-          Regras & Listas
+          <span class="nav-label">Regras &amp; Listas</span>
         </button>
-        <button class="nav-item" id="navItemUsers" data-tab="users" style="display: none;">
+        <button class="nav-item" id="navItemUsers" data-tab="users" title="Usuários" style="display: none;">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-          Usuários
+          <span class="nav-label">Usuários</span>
         </button>
-        <button class="nav-item" data-tab="guide">
+        <button class="nav-item" data-tab="guide" title="Guia de Rede">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-          Guia de Rede
+          <span class="nav-label">Guia de Rede</span>
         </button>
       </nav>
 
@@ -150,6 +150,13 @@
       <!-- Cabeçalho Superior -->
       <header class="topbar">
         <div class="topbar-left">
+          <button class="btn-toggle-sidebar" id="btnToggleSidebar" aria-label="Recolher / Expandir Menu" title="Recolher / Expandir Menu Lateral (Mais espaço de visualização)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
+              <line x1="9" y1="3" x2="9" y2="21"/>
+              <path d="m14 9-3 3 3 3"/>
+            </svg>
+          </button>
           <button class="btn-mobile-menu" id="btnToggleMobileSidebar" aria-label="Abrir Menu">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="3" y1="12" x2="21" y2="12"></line>
