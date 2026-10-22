@@ -19,6 +19,96 @@ type CategoryInfo struct {
 	Color       string `json:"color"`
 }
 
+type ApplicationInfo struct {
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Category string   `json:"category"`
+	Color    string   `json:"color"`
+	Domains  []string `json:"domains"`
+}
+
+var AvailableApplications = []ApplicationInfo{
+	// AI
+	{ID: "character_ai", Name: "Character AI", Category: "ai", Color: "#8b5cf6", Domains: []string{"character.ai", "beta.character.ai"}},
+	{ID: "chatgpt", Name: "ChatGPT", Category: "ai", Color: "#10a37f", Domains: []string{"chatgpt.com", "openai.com"}},
+	{ID: "claude_ai", Name: "Claude AI", Category: "ai", Color: "#d97706", Domains: []string{"claude.ai", "anthropic.com"}},
+	{ID: "copy_ai", Name: "Copy.ai", Category: "ai", Color: "#2563eb", Domains: []string{"copy.ai"}},
+	{ID: "dall_e", Name: "DALL-E", Category: "ai", Color: "#ec4899", Domains: []string{"labs.openai.com"}},
+
+	// Bank
+	{ID: "banco_do_brasil", Name: "Banco do Brasil", Category: "bank", Color: "#facc15", Domains: []string{"bb.com.br"}},
+	{ID: "banco_inter", Name: "Banco Inter", Category: "bank", Color: "#f97316", Domains: []string{"bancointer.com.br", "inter.co"}},
+	{ID: "banco_pan", Name: "Banco Pan", Category: "bank", Color: "#0284c7", Domains: []string{"bancopan.com.br"}},
+	{ID: "banco_safra", Name: "Banco Safra", Category: "bank", Color: "#1e3a8a", Domains: []string{"safra.com.br"}},
+	{ID: "bradesco", Name: "Bradesco", Category: "bank", Color: "#dc2626", Domains: []string{"bradesco.com.br"}},
+	{ID: "itau", Name: "Itaú", Category: "bank", Color: "#ea580c", Domains: []string{"itau.com.br"}},
+	{ID: "nubank", Name: "Nubank", Category: "bank", Color: "#820ad1", Domains: []string{"nubank.com.br"}},
+	{ID: "santander", Name: "Santander", Category: "bank", Color: "#ec0000", Domains: []string{"santander.com.br"}},
+
+	// Betting
+	{ID: "1xbet", Name: "1xBet", Category: "betting", Color: "#105a96", Domains: []string{"1xbet.com"}},
+	{ID: "bet_da_sorte", Name: "Bet da Sorte", Category: "betting", Color: "#16a34a", Domains: []string{"betdasorte.com"}},
+	{ID: "bet365", Name: "Bet365", Category: "betting", Color: "#006b52", Domains: []string{"bet365.com"}},
+	{ID: "betano", Name: "Betano", Category: "betting", Color: "#f95900", Domains: []string{"betano.com", "br.betano.com"}},
+	{ID: "betfair", Name: "Betfair", Category: "betting", Color: "#f59e0b", Domains: []string{"betfair.com"}},
+	{ID: "blaze", Name: "Blaze", Category: "betting", Color: "#ef4444", Domains: []string{"blaze.com"}},
+	{ID: "estrelabet", Name: "EstrelaBet", Category: "betting", Color: "#eab308", Domains: []string{"estrelabet.com"}},
+	{ID: "kto", Name: "KTO", Category: "betting", Color: "#dc2626", Domains: []string{"kto.com"}},
+	{ID: "pixbet", Name: "Pixbet", Category: "betting", Color: "#2563eb", Domains: []string{"pixbet.com"}},
+	{ID: "sportingbet", Name: "Sportingbet", Category: "betting", Color: "#0284c7", Domains: []string{"sportingbet.com"}},
+
+	// Education
+	{ID: "alura", Name: "Alura", Category: "education", Color: "#0070f3", Domains: []string{"alura.com.br"}},
+	{ID: "awari", Name: "Awari", Category: "education", Color: "#6366f1", Domains: []string{"awari.com.br"}},
+	{ID: "coursera", Name: "Coursera", Category: "education", Color: "#0056d2", Domains: []string{"coursera.org"}},
+	{ID: "descomplica", Name: "Descomplica", Category: "education", Color: "#00e676", Domains: []string{"descomplica.com.br"}},
+	{ID: "digital_house", Name: "Digital House", Category: "education", Color: "#111827", Domains: []string{"digitalhouse.com"}},
+
+	// Games
+	{ID: "among_us", Name: "Among Us", Category: "games", Color: "#c51111", Domains: []string{"innersloth.com"}},
+	{ID: "brawl_stars", Name: "Brawl Stars", Category: "games", Color: "#f59e0b", Domains: []string{"supercell.com"}},
+	{ID: "call_of_duty", Name: "Call of Duty", Category: "games", Color: "#374151", Domains: []string{"callofduty.com", "activision.com"}},
+	{ID: "candy_crush", Name: "Candy Crush", Category: "games", Color: "#f97316", Domains: []string{"king.com"}},
+	{ID: "clash_of_clans", Name: "Clash of Clans", Category: "games", Color: "#eab308", Domains: []string{"clashofclans.com"}},
+	{ID: "epic_games", Name: "Epic Games", Category: "games", Color: "#333333", Domains: []string{"epicgames.com"}},
+	{ID: "roblox", Name: "Roblox", Category: "games", Color: "#e11d48", Domains: []string{"roblox.com"}},
+	{ID: "steam", Name: "Steam", Category: "games", Color: "#171a21", Domains: []string{"steampowered.com", "steamcommunity.com"}},
+
+	// Google
+	{ID: "google_agenda", Name: "Google Agenda", Category: "google", Color: "#4285f4", Domains: []string{"calendar.google.com"}},
+	{ID: "google_docs", Name: "Google Docs", Category: "google", Color: "#2563eb", Domains: []string{"docs.google.com"}},
+	{ID: "google_drive", Name: "Google Drive", Category: "google", Color: "#34a853", Domains: []string{"drive.google.com"}},
+	{ID: "google_fotos", Name: "Google Fotos", Category: "google", Color: "#ea4335", Domains: []string{"photos.google.com"}},
+	{ID: "gemini", Name: "Gemini", Category: "google", Color: "#9333ea", Domains: []string{"gemini.google.com"}},
+
+	// Messaging
+	{ID: "discord", Name: "Discord", Category: "messaging", Color: "#5865f2", Domains: []string{"discord.com", "discord.gg"}},
+	{ID: "skype", Name: "Skype", Category: "messaging", Color: "#00aff0", Domains: []string{"skype.com"}},
+	{ID: "telegram", Name: "Telegram", Category: "messaging", Color: "#229ed9", Domains: []string{"telegram.org", "t.me"}},
+	{ID: "whatsapp", Name: "WhatsApp", Category: "messaging", Color: "#25d366", Domains: []string{"whatsapp.com", "whatsapp.net"}},
+	{ID: "zoom", Name: "Zoom", Category: "messaging", Color: "#2d8cff", Domains: []string{"zoom.us"}},
+
+	// Meta
+	{ID: "facebook", Name: "Facebook", Category: "meta", Color: "#1877f2", Domains: []string{"facebook.com", "fb.com"}},
+	{ID: "instagram", Name: "Instagram", Category: "meta", Color: "#e4405f", Domains: []string{"instagram.com"}},
+	{ID: "messenger", Name: "Messenger", Category: "meta", Color: "#0099ff", Domains: []string{"messenger.com"}},
+	{ID: "threads", Name: "Threads", Category: "meta", Color: "#111827", Domains: []string{"threads.net"}},
+
+	// Microsoft
+	{ID: "azure", Name: "Azure", Category: "microsoft", Color: "#0078d4", Domains: []string{"azure.com"}},
+	{ID: "bing", Name: "Bing", Category: "microsoft", Color: "#008373", Domains: []string{"bing.com"}},
+	{ID: "copilot", Name: "Copilot", Category: "microsoft", Color: "#2563eb", Domains: []string{"copilot.microsoft.com"}},
+	{ID: "edge", Name: "Edge", Category: "microsoft", Color: "#0078d7", Domains: []string{"microsoftedge.com"}},
+	{ID: "office_365", Name: "Office 365", Category: "microsoft", Color: "#d83b01", Domains: []string{"office.com"}},
+	{ID: "outlook", Name: "Outlook", Category: "microsoft", Color: "#0072c6", Domains: []string{"outlook.com"}},
+	{ID: "teams", Name: "Microsoft Teams", Category: "microsoft", Color: "#6264a7", Domains: []string{"teams.microsoft.com"}},
+
+	// Music
+	{ID: "apple_music", Name: "Apple Music", Category: "music", Color: "#fc3c44", Domains: []string{"music.apple.com"}},
+	{ID: "deezer", Name: "Deezer", Category: "music", Color: "#ef5466", Domains: []string{"deezer.com"}},
+	{ID: "spotify", Name: "Spotify", Category: "music", Color: "#1db954", Domains: []string{"spotify.com"}},
+}
+
 var AvailableCategories = []CategoryInfo{
 	{ID: "adult", Name: "Conteúdo Adulto / Pornografia", Description: "Sites adultos, pornografia, nudez e conteúdo explícito", Icon: "fas fa-ban", Color: "#ef4444"},
 	{ID: "gambling", Name: "Apostas & Jogos de Azar", Description: "Cassinos online, apostas esportivas (Bet365, Betano, Blaze)", Icon: "fas fa-dice", Color: "#f59e0b"},

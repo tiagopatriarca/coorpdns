@@ -68,10 +68,23 @@
         </div>
       </div>
 
+      <div class="sidebar-search-box">
+        <div class="search-input-wrapper">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input type="text" id="sidebarSearchInput" class="sidebar-search-input" placeholder="Search...">
+          <span class="kbd-badge">CTRL K</span>
+        </div>
+      </div>
+
       <nav class="nav-menu">
         <button class="nav-item active" data-tab="dashboard">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
-          Visão Geral
+          Dashboard
+        </button>
+        <button class="nav-item" id="navItemPolicies" data-tab="policies">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><circle cx="12" cy="11" r="3"/></svg>
+          Políticas &amp; Grupos
+          <span class="tab-badge" style="background:#f59e0b; color:#000; font-weight:700;">Novo</span>
         </button>
         <button class="nav-item highlight-tab" data-tab="reports">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
@@ -191,20 +204,135 @@
           </div>
         </div>
 
-        <!-- Gráfico de Tendência (24 Horas) -->
-        <div class="card chart-card">
-          <div class="card-header">
-            <div>
-              <h3>Atividade de Consultas DNS (Últimas 24h)</h3>
-              <p class="card-desc">Volume de consultas permitidas vs. anúncios e rastreadores bloqueados</p>
+        <!-- Monitoramento de Consultas & Status dos Dispositivos (Grid Hero - Screenshot 1) -->
+        <div class="dashboard-hero-grid">
+          <!-- Gráfico de Monitoramento de Consultas (24h) -->
+          <div class="hero-chart-card">
+            <div class="hero-chart-header">
+              <div>
+                <span class="hero-chart-title">
+                  Monitoramento de consultas
+                  <span class="hero-chart-badge" id="chartBlockedSummary">0 bloqueadas</span>
+                </span>
+              </div>
+              <div class="hero-chart-controls">
+                <select id="selectChartTimeRange" class="form-select" style="font-size: 0.78rem; padding: 0.25rem 0.6rem; height: auto;">
+                  <option value="24h">Últimas 24 horas</option>
+                  <option value="7d">Últimos 7 dias</option>
+                  <option value="today">Hoje</option>
+                </select>
+                <div class="hero-chart-legend">
+                  <span><span class="legend-dot green"></span>Consultas</span>
+                  <span><span class="legend-dot red"></span>Bloqueadas</span>
+                </div>
+              </div>
             </div>
-            <div class="chart-legend">
-              <span class="legend-item"><span class="dot emerald"></span> Permitidos</span>
-              <span class="legend-item"><span class="dot red"></span> Bloqueados</span>
+            <div class="smooth-area-chart-container" id="dashboardHeroChart">
+              <svg id="heroTimelineSvg" viewBox="0 0 850 210" preserveAspectRatio="none"></svg>
             </div>
           </div>
-          <div class="chart-container" id="dashboardChart">
-            <svg id="timelineSvg" viewBox="0 0 900 240" preserveAspectRatio="none"></svg>
+
+          <!-- Status dos Dispositivos (Donut Chart - Screenshot 1) -->
+          <div class="device-status-card">
+            <div class="device-status-header">
+              <span class="device-status-title">Status dos Dispositivos</span>
+              <span class="device-status-count" id="donutDevicesTotalSummary">2 dispositivos</span>
+            </div>
+
+            <div class="donut-layout">
+              <div class="donut-chart-wrapper">
+                <svg class="donut-chart-svg" viewBox="0 0 120 120">
+                  <circle cx="60" cy="60" r="48" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="12"></circle>
+                  <circle id="donutCircleOnline" cx="60" cy="60" r="48" fill="none" stroke="#10b981" stroke-width="12" stroke-dasharray="301.59" stroke-dashoffset="0" stroke-linecap="round"></circle>
+                </svg>
+                <div class="donut-center-text">
+                  <div class="donut-center-number" id="donutCenterCount">2</div>
+                  <div class="donut-center-label">Total</div>
+                </div>
+              </div>
+
+              <div class="donut-legend-list">
+                <div class="donut-legend-item"><span class="donut-dot" style="background: #10b981;"></span> Online: <strong id="donutOnlineCount">2</strong></div>
+                <div class="donut-legend-item"><span class="donut-dot" style="background: #64748b;"></span> Offline: <strong id="donutOfflineCount">0</strong></div>
+                <div class="donut-legend-item"><span class="donut-dot" style="background: #3b82f6;"></span> Desconhecido: <strong>0</strong></div>
+                <div class="donut-legend-item"><span class="donut-dot" style="background: #ef4444;"></span> Erro: <strong>0</strong></div>
+                <div class="donut-legend-item"><span class="donut-dot" style="background: #f59e0b;"></span> Parado: <strong>0</strong></div>
+              </div>
+            </div>
+
+            <div class="device-sub-indicators">
+              <div class="sub-indicator-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                <span>Proxy rodando e filtrando em tempo real</span>
+              </div>
+              <div class="sub-indicator-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
+                <span>DNS aplicado e propagado para a rede</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4 TOP 10 CARDS (Aplicações, Aplicações Bloqueadas, Categorias, Categorias Bloqueadas - Screenshot 1) -->
+        <div class="top10-widgets-grid">
+          <!-- Card 1: Aplicações Mais Utilizadas -->
+          <div class="top10-card">
+            <div class="top10-card-header">
+              <h4 class="top10-title">Aplicações</h4>
+              <span class="top10-pill-badge">TOP 10</span>
+            </div>
+            <ul class="top10-list" id="listTopApps">
+              <!-- Preenchido via JS -->
+            </ul>
+          </div>
+
+          <!-- Card 2: Aplicações Bloqueadas -->
+          <div class="top10-card">
+            <div class="top10-card-header">
+              <h4 class="top10-title blocked-accent">Aplicações bloqueadas</h4>
+              <span class="top10-pill-badge red">TOP 10</span>
+            </div>
+            <ul class="top10-list" id="listTopBlockedApps">
+              <!-- Preenchido via JS (ou Empty State de Xícara de Café) -->
+            </ul>
+          </div>
+
+          <!-- Card 3: Categorias Mais Utilizadas -->
+          <div class="top10-card">
+            <div class="top10-card-header">
+              <h4 class="top10-title">Categorias</h4>
+              <span class="top10-pill-badge">TOP 10</span>
+            </div>
+            <ul class="top10-list" id="listTopCategories">
+              <!-- Preenchido via JS -->
+            </ul>
+          </div>
+
+          <!-- Card 4: Categorias Bloqueadas -->
+          <div class="top10-card">
+            <div class="top10-card-header">
+              <h4 class="top10-title blocked-accent">Categorias bloqueadas</h4>
+              <span class="top10-pill-badge red">TOP 10</span>
+            </div>
+            <ul class="top10-list" id="listTopBlockedCategories">
+              <!-- Preenchido via JS (ou Empty State de Xícara de Café) -->
+            </ul>
+          </div>
+        </div>
+
+        <!-- Grupos Mais Utilizados & Auditoria Rápida -->
+        <div class="card" style="margin-bottom: 1.5rem;">
+          <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <h3>Grupos Mais Utilizados</h3>
+              <p class="card-desc">Distribuição de tráfego e políticas de proteção ativas por setor corporativo</p>
+            </div>
+            <button class="btn btn-secondary btn-sm" id="btnGoToPoliciesTab">
+              ⚙️ Gerenciar Políticas &amp; Agendamento &rarr;
+            </button>
+          </div>
+          <div id="containerDashboardGroupsList" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; padding: 0.5rem 0;">
+            <!-- Preenchido via JS -->
           </div>
         </div>
 
@@ -249,6 +377,292 @@
                   <tr><td colspan="3" class="text-center text-muted">Carregando...</td></tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ABA: POLÍTICAS & GRUPOS (APLICAÇÕES, HORÁRIOS & AGENDAMENTO - Screenshots 2 e 3) -->
+      <section id="tab-policies" class="tab-pane">
+        <!-- Barra de Seleção da Política / Grupo -->
+        <div class="policy-header-bar">
+          <div class="policy-title-group">
+            <button class="btn-policy-back" id="btnPolicyBackToDashboard" title="Voltar para a Visão Geral">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+            </button>
+            <div class="policy-title-text">
+              <h2>
+                <span id="labelPolicyGroupTitle">Política: Geral / Padrão Corporativo</span>
+                <span id="badgePolicyScheduleState" class="badge-status online" style="font-size: 0.72rem; vertical-align: middle;">Horário Ativo</span>
+              </h2>
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <label for="selectCurrentPolicyGroup" style="font-size: 0.82rem; color: var(--text-muted); font-weight: 600;">Grupo:</label>
+            <select id="selectCurrentPolicyGroup" class="form-select" style="min-width: 220px;">
+              <!-- Preenchido via JS -->
+            </select>
+            <button id="btnSaveAllPolicyChanges" class="btn btn-primary btn-sm">
+              💾 Salvar Todas as Regras
+            </button>
+          </div>
+        </div>
+
+        <!-- Sub-Navegação da Política (Domínios, Aplicações, Categorias, Horário de Funcionamento, Vínculos, Auditoria) -->
+        <div class="policy-subnav-tabs">
+          <button class="policy-subnav-tab" data-pol-subtab="domains">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            Domínios
+          </button>
+          <button class="policy-subnav-tab active" data-pol-subtab="applications">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+            Aplicações
+            <span class="tab-badge" id="policyAppsBlockedBadge" style="background: rgba(239, 68, 68, 0.2); color: #f87171;">0</span>
+          </button>
+          <button class="policy-subnav-tab" data-pol-subtab="categories">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"/></svg>
+            Categorias
+          </button>
+          <button class="policy-subnav-tab" data-pol-subtab="schedule">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            Horário de funcionamento
+          </button>
+          <button class="policy-subnav-tab" data-pol-subtab="devices">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            Vínculos
+          </button>
+          <button class="policy-subnav-tab" data-pol-subtab="audit">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            Auditoria
+          </button>
+        </div>
+
+        <!-- CONTEÚDO SUB-ABA 1: APLICAÇÕES (Screenshot 3) -->
+        <div id="subtab-policy-applications" class="policy-tab-pane active">
+          <div class="apps-catalog-toolbar">
+            <div class="apps-toolbar-left">
+              <h4 style="font-size: 1.05rem; margin-bottom: 0.25rem;">Aplicações</h4>
+              <p>Escolha as aplicações e categorias que você quer bloquear para este grupo. Tudo que ficar desligado continua liberado.</p>
+            </div>
+            <div class="apps-toolbar-right">
+              <label class="filter-blocked-toggle-label">
+                <label class="tactile-switch">
+                  <input type="checkbox" id="checkFilterOnlyBlockedApps">
+                  <span class="tactile-slider"></span>
+                </label>
+                <span>Mostrar somente bloqueadas</span>
+              </label>
+
+              <div class="apps-search-wrapper">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <input type="text" id="inputSearchPolicyApps" class="apps-search-input" placeholder="Procure aplicações...">
+              </div>
+            </div>
+          </div>
+
+          <!-- Grade de Cards de Categorias com Aplicações (AI, Bank, Betting, etc.) -->
+          <div class="apps-category-grid" id="gridPolicyCategoryCards">
+            <!-- Renderizado dinamicamente via JS -->
+          </div>
+        </div>
+
+        <!-- CONTEÚDO SUB-ABA 2: HORÁRIO DE FUNCIONAMENTO (Screenshot 2) -->
+        <div id="subtab-policy-schedule" class="policy-tab-pane">
+          <div class="schedule-control-card">
+            <!-- Switch Habilitar Horário -->
+            <div class="schedule-header-switch-area">
+              <div class="schedule-switch-group">
+                <label class="tactile-switch">
+                  <input type="checkbox" id="checkEnablePolicySchedule" checked>
+                  <span class="tactile-slider"></span>
+                </label>
+                <div>
+                  <strong style="font-size: 0.95rem; display: block; color: var(--text-main);">Habilitar Horário de Funcionamento</strong>
+                  <span class="schedule-switch-desc">Com o horário ligado, as regras e restrições desta política respeitam a grade semanal abaixo.</span>
+                </div>
+              </div>
+
+              <div style="display: flex; gap: 0.5rem; align-items: center;">
+                <span id="scheduleSaveIndicator" style="font-size: 0.8rem; color: var(--accent-emerald);"></span>
+                <button id="btnSaveScheduleOnly" class="btn btn-primary btn-sm">Salvar Horário</button>
+              </div>
+            </div>
+
+            <!-- Seletor de Modo: Totalmente Bloqueado / Parcialmente Bloqueado / Totalmente Liberado -->
+            <div style="margin-bottom: 0.75rem;">
+              <label style="font-size: 0.82rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Modo de Operação do Agendamento:</label>
+            </div>
+            <div class="schedule-modes-selector">
+              <div class="mode-card-option" data-schedule-mode="total_block" id="optModeTotalBlock">
+                <div class="mode-card-title">
+                  <span>🛑 Totalmente Bloqueado</span>
+                </div>
+                <div class="mode-card-desc">
+                  Durante os blocos marcados na grade, <strong>toda e qualquer navegação na internet é bloqueada</strong> (sinkhole completo para todos os dispositivos deste grupo).
+                </div>
+              </div>
+
+              <div class="mode-card-option active" data-schedule-mode="partial_block" id="optModePartialBlock">
+                <div class="mode-card-title">
+                  <span>⚖️ Parcialmente Bloqueado (Recomendado)</span>
+                </div>
+                <div class="mode-card-desc">
+                  Os bloqueios de <strong>aplicações e categorias selecionadas só valem dentro dos horários marcados</strong>. Fora deles, a navegação fica liberada.
+                </div>
+              </div>
+
+              <div class="mode-card-option" data-schedule-mode="total_allow" id="optModeTotalAllow">
+                <div class="mode-card-title">
+                  <span>🟢 Totalmente Liberado</span>
+                </div>
+                <div class="mode-card-desc">
+                  Durante os horários agendados, todas as restrições são suspensas (modo livre e sem bloqueios durante o período agendado).
+                </div>
+              </div>
+            </div>
+
+            <!-- Barra de Presets Rápidos -->
+            <div class="schedule-presets-bar">
+              <div style="font-size: 0.82rem; color: var(--text-dim); display: flex; align-items: center; gap: 0.4rem;">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 14 14"/></svg>
+                <span>Atalhos de Grade:</span>
+              </div>
+              <div class="preset-buttons-group">
+                <button type="button" class="btn btn-secondary btn-sm" id="btnPresetCommercial">🏢 Comercial (Seg-Sex 08h-12h e 14h-18h)</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="btnPresetFullDay">⏰ Dia Inteiro (Seg-Sex 08h-18h)</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="btnPresetWeekend">🏖️ Fins de Semana Bloqueados</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="btnPresetSelectAll">🔄 Selecionar Todos</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="btnPresetClearAll" style="color: #f87171;">🧹 Limpar Grade</button>
+              </div>
+            </div>
+
+            <!-- Grade Semanal Interativa (Domingo a Sábado, 00:00 a 23:00) -->
+            <div class="weekly-calendar-table-wrapper" id="calendarTableWrapper">
+              <table class="weekly-grid-table" id="tableWeeklySchedule">
+                <thead>
+                  <tr>
+                    <th class="time-col-header">Horário</th>
+                    <th data-day-index="0">Domingo</th>
+                    <th data-day-index="1">Segunda</th>
+                    <th data-day-index="2">Terça</th>
+                    <th data-day-index="3">Quarta</th>
+                    <th data-day-index="4">Quinta</th>
+                    <th data-day-index="5">Sexta</th>
+                    <th data-day-index="6">Sábado</th>
+                  </tr>
+                </thead>
+                <tbody id="tbodyWeeklyGrid">
+                  <!-- Gerado dinamicamente com 24 horas x 7 dias -->
+                </tbody>
+              </table>
+
+              <!-- Linha Indicadora de Horário Real (Pulsando Vermelho) -->
+              <div class="current-time-marker-line" id="currentTimeMarker" style="display: none;">
+                <span class="current-time-badge" id="currentTimeBadge">16:15</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- CONTEÚDO SUB-ABA 3: DOMÍNIOS -->
+        <div id="subtab-policy-domains" class="policy-tab-pane">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h3>Regras Personalizadas de Domínio para este Grupo</h3>
+                <p class="card-desc">Adicione domínios específicos que este grupo deve sempre bloquear ou liberar</p>
+              </div>
+            </div>
+            <div style="padding: 1.25rem;">
+              <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                <input type="text" id="inputGroupCustomDomain" class="form-input" placeholder="ex: siteespecifico.com.br" style="flex: 1;">
+                <button id="btnGroupAddBlockDomain" class="btn btn-danger btn-sm">Bloquear Domínio</button>
+                <button id="btnGroupAddAllowDomain" class="btn btn-success btn-sm">Permitir Domínio</button>
+              </div>
+              <p class="text-muted" style="font-size: 0.85rem;">As regras desta política aplicam-se com prioridade estrita aos dispositivos membros deste grupo.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- CONTEÚDO SUB-ABA 4: CATEGORIAS GLOBAIS -->
+        <div id="subtab-policy-categories" class="policy-tab-pane">
+          <div class="card">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <h3>Políticas de Categorias de Conteúdo</h3>
+                <p class="card-desc">Bloqueie temas inteiros (Pornografia, Apostas, Redes Sociais, P2P/Torrent)</p>
+              </div>
+              <div style="display: flex; gap: 0.5rem;">
+                <button id="btnPolicyCatBlockAll" class="btn btn-secondary btn-sm">Bloquear Todas</button>
+                <button id="btnPolicyCatAllowAll" class="btn btn-secondary btn-sm">Liberar Todas</button>
+              </div>
+            </div>
+            <div class="category-grid" id="containerPolicyCategoriesGrid" style="padding: 1.25rem;">
+              <!-- Preenchido via JS -->
+            </div>
+          </div>
+        </div>
+
+        <!-- CONTEÚDO SUB-ABA 5: VÍNCULOS (DISPOSITIVOS NO GRUPO) -->
+        <div id="subtab-policy-devices" class="policy-tab-pane">
+          <div class="card">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <h3>Dispositivos Vinculados a esta Política</h3>
+                <p class="card-desc">Aparelhos corporativos que recebem estas regras de aplicações e agendamento</p>
+              </div>
+              <button class="btn btn-secondary btn-sm" id="btnOpenNewClientFromPolicy">
+                + Associar Novo Dispositivo
+              </button>
+            </div>
+            <div class="table-container">
+              <table class="data-table" id="tablePolicyGroupClients">
+                <thead>
+                  <tr>
+                    <th>Tipo</th>
+                    <th>Nome do Dispositivo</th>
+                    <th>IP / Identificador</th>
+                    <th>Status</th>
+                    <th>Comentário</th>
+                  </tr>
+                </thead>
+                <tbody id="tbodyPolicyGroupClients">
+                  <!-- Preenchido via JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- CONTEÚDO SUB-ABA 6: AUDITORIA -->
+        <div id="subtab-policy-audit" class="policy-tab-pane">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h3>Histórico de Auditoria da Política</h3>
+                <p class="card-desc">Registro de alterações de regras, aplicações e horários realizadas pelos administradores</p>
+              </div>
+            </div>
+            <div style="padding: 1.25rem;">
+              <div class="log-entry" style="padding: 0.75rem; border-left: 3px solid var(--accent-emerald); background: rgba(255,255,255,0.02); margin-bottom: 0.5rem; border-radius: 4px;">
+                <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-dim);">
+                  <span>Administrador Principal (admin)</span>
+                  <span>Hoje às 16:10</span>
+                </div>
+                <div style="font-size: 0.85rem; color: var(--text-main); margin-top: 0.25rem;">
+                  Atualização de agendamento: Horário comercial habilitado (Segunda a Sexta, 08:00 - 18:00).
+                </div>
+              </div>
+              <div class="log-entry" style="padding: 0.75rem; border-left: 3px solid #f97316; background: rgba(255,255,255,0.02); margin-bottom: 0.5rem; border-radius: 4px;">
+                <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-dim);">
+                  <span>Administrador Principal (admin)</span>
+                  <span>Hoje às 15:30</span>
+                </div>
+                <div style="font-size: 0.85rem; color: var(--text-main); margin-top: 0.25rem;">
+                  Aplicações da categoria <strong>Betting</strong> (Bet365, Betano, Betfair, Blaze) configuradas como bloqueadas.
+                </div>
+              </div>
             </div>
           </div>
         </div>

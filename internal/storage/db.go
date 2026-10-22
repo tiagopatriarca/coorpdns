@@ -59,6 +59,14 @@ type ConditionalForwarder struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+type GroupSchedule struct {
+	GroupID      int64     `json:"group_id"`
+	Enabled      bool      `json:"enabled"`
+	Mode         string    `json:"mode"` // "total_block", "partial_block", "total_allow"
+	ScheduleJSON string    `json:"schedule_json"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
 type DB struct {
 	db          *sql.DB
 	logChan     chan *QueryLogRecord
@@ -174,6 +182,24 @@ func (d *DB) migrate() error {
 		action TEXT NOT NULL DEFAULT 'block',
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		PRIMARY KEY (group_id, category_id),
+		FOREIGN KEY (group_id) REFERENCES client_groups(id) ON DELETE CASCADE
+	);
+
+	CREATE TABLE IF NOT EXISTS group_application_rules (
+		group_id INTEGER NOT NULL,
+		app_id TEXT NOT NULL,
+		action TEXT NOT NULL DEFAULT 'block',
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (group_id, app_id),
+		FOREIGN KEY (group_id) REFERENCES client_groups(id) ON DELETE CASCADE
+	);
+
+	CREATE TABLE IF NOT EXISTS group_schedules (
+		group_id INTEGER PRIMARY KEY,
+		enabled INTEGER DEFAULT 1,
+		mode TEXT NOT NULL DEFAULT 'partial_block',
+		schedule_json TEXT NOT NULL DEFAULT '[]',
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (group_id) REFERENCES client_groups(id) ON DELETE CASCADE
 	);
 
@@ -717,6 +743,99 @@ func (d *DB) SetGroupCategories(groupID int64, rules map[string]string) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// Retorna as aplicações e ações ('block' ou 'allow') configuradas para um grupo
+func (d *DB) GetGroupApplicationRules(groupID int64) (map[string]string, error) {
+	rows, err := d.db.Query("SELECT app_id, action FROM group_application_rules WHERE group_id = ?", groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	rules := make(map[string]string)
+	for rows.Next() {
+		var appID, action string
+		if err := rows.Scan(&appID, &action); err == nil {
+			rules[appID] = action
+		}
+	}
+	return rules, nil
+}
+
+// Salva múltiplas regras de aplicações de uma vez para um grupo
+func (d *DB) SetGroupApplicationRules(groupID int64, rules map[string]string) error {
+	tx, err := d.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO group_application_rules (group_id, app_id, action, updated_at)
+		VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(group_id, app_id) DO UPDATE SET action = excluded.action, updated_at = CURRENT_TIMESTAMP
+	`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for appID, action := range rules {
+		if _, err := stmt.Exec(groupID, appID, action); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// Retorna o agendamento / horário de funcionamento de um grupo
+func (d *DB) GetGroupSchedule(groupID int64) (*GroupSchedule, error) {
+	var sched GroupSchedule
+	var enabledInt int
+	err := d.db.QueryRow(`
+		SELECT group_id, enabled, mode, schedule_json, updated_at 
+		FROM group_schedules WHERE group_id = ?
+	`, groupID).Scan(&sched.GroupID, &enabledInt, &sched.Mode, &sched.ScheduleJSON, &sched.UpdatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return &GroupSchedule{
+				GroupID:      groupID,
+				Enabled:      true,
+				Mode:         "partial_block",
+				ScheduleJSON: "[]",
+				UpdatedAt:    time.Now(),
+			}, nil
+		}
+		return nil, err
+	}
+	sched.Enabled = enabledInt == 1
+	return &sched, nil
+}
+
+// Salva o agendamento de um grupo
+func (d *DB) SetGroupSchedule(groupID int64, enabled bool, mode string, scheduleJSON string) error {
+	enabledInt := 0
+	if enabled {
+		enabledInt = 1
+	}
+	if mode == "" {
+		mode = "partial_block"
+	}
+	if scheduleJSON == "" {
+		scheduleJSON = "[]"
+	}
+
+	_, err := d.db.Exec(`
+		INSERT INTO group_schedules (group_id, enabled, mode, schedule_json, updated_at)
+		VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(group_id) DO UPDATE SET 
+			enabled = excluded.enabled,
+			mode = excluded.mode,
+			schedule_json = excluded.schedule_json,
+			updated_at = CURRENT_TIMESTAMP
+	`, groupID, enabledInt, mode, scheduleJSON)
+	return err
 }
 
 // Retorna o group_id de um cliente buscando por IP ou auth_token. Se não encontrado, retorna 1 (Padrão)

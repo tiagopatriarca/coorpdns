@@ -8,6 +8,13 @@ const API_BASE = ''; // Relativo ao host atual
 const state = {
   currentTab: 'dashboard',
   currentReportSubtab: 'top-sites',
+  currentPolicyTab: 'applications',
+  currentPolicyGroup: 1,
+  catalogApplications: [],
+  groupAppRules: {},
+  groupSchedule: { enabled: true, mode: 'partial_block', slots: [] },
+  filterOnlyBlockedApps: false,
+  searchAppQuery: '',
   reportDays: 30,
   domainStatusFilter: 'all',
   selectedClientForMatrix: '',
@@ -40,6 +47,8 @@ document.addEventListener('DOMContentLoaded', () => {
   setupBlockPageSettingsControls();
   setupMasterToggle();
   setupRulesForm();
+  setupPoliciesControls();
+  setupSidebarSearch();
 
   // Validação de autenticação inicial
   checkAuth();
@@ -92,6 +101,7 @@ function switchTab(tabId) {
 
   const titles = {
     dashboard: ['Painel de Controle', 'Proteção de rede e bloqueio de anúncios ativo para todos os dispositivos Wi-Fi'],
+    policies: ['Políticas & Grupos', 'Gerenciamento de aplicações, regras de categorias e agendamento semanal de funcionamento'],
     reports: ['Relatórios Históricos (180 Dias)', 'Auditoria completa de consumo por máquina, sites mais acessados e tendências'],
     logs: ['Log de Consultas DNS', 'Acompanhamento em tempo real das requisições DNS processadas na sua rede'],
     clients: ['Gerenciamento de Dispositivos', 'Nomeie e personalize os aparelhos conectados para facilitar o monitoramento'],
@@ -106,7 +116,9 @@ function switchTab(tabId) {
   }
 
   // Dispara carregamento de dados da aba selecionada
-  if (tabId === 'reports') {
+  if (tabId === 'policies') {
+    loadPoliciesSection();
+  } else if (tabId === 'reports') {
     loadReportsData();
   } else if (tabId === 'logs') {
     loadLiveLogs();
@@ -202,7 +214,7 @@ function setupMasterToggle() {
 }
 
 // ==========================================================
-// Dashboard (Métricas e Gráfico)
+// Dashboard (Métricas e Gráficos Modernos)
 // ==========================================================
 async function refreshDashboard() {
   try {
@@ -215,10 +227,15 @@ async function refreshDashboard() {
     document.getElementById('cardBlockRate').textContent = `${stats.block_rate.toFixed(1)}%`;
     document.getElementById('cardActiveClients').textContent = stats.active_clients.toLocaleString();
 
+    // Atualiza novos componentes visuais avançados
+    renderHeroMonitoringChart();
+    renderDeviceDonut();
+    loadDashboardTopWidgets();
+    loadDashboardGroupsSummary();
+
     // Atualiza mini tabelas rápidas
     loadQuickDomains();
     loadQuickClients();
-    renderTimelineChart();
   } catch (err) {
     console.error('Erro no dashboard:', err);
   }
@@ -2127,5 +2144,954 @@ window.deleteUserById = async function(id, username) {
     alert('Erro de conexão ao excluir usuário.');
   }
 };
+
+// ==========================================================
+// SVGs & Ícones Autênticos de Aplicações (Emil Kowalski Design)
+// ==========================================================
+function getAppIconSvg(appId, name, color = '#3b82f6') {
+  const icons = {
+    whatsapp: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2m.01 1.67c2.2 0 4.26.86 5.82 2.42a8.23 8.23 0 0 1 2.41 5.83c0 4.54-3.7 8.24-8.24 8.24-1.48 0-2.93-.4-4.2-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.19 8.19 0 0 1-1.26-4.38c0-4.54 3.7-8.24 8.24-8.24m4.52 11.66c-.25-.13-1.47-.72-1.7-.81-.23-.08-.39-.13-.56.13-.17.25-.64.81-.79.97-.14.17-.29.19-.54.06-.25-.13-1.06-.39-2.02-1.24-.75-.67-1.26-1.49-1.41-1.74-.14-.25-.02-.39.11-.51.11-.11.25-.29.37-.44.13-.14.17-.25.25-.42.08-.17.04-.31-.02-.44-.06-.13-.56-1.35-.77-1.85-.2-.49-.41-.42-.56-.43h-.48c-.17 0-.44.06-.67.31-.23.25-.88.86-.88 2.1 0 1.24.9 2.44 1.03 2.61.13.17 1.78 2.72 4.31 3.81.6.26 1.07.42 1.44.53.61.19 1.16.17 1.6.1.49-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.14-1.18-.06-.1-.22-.16-.47-.28"/></svg>`,
+    teams: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="M19.5 7.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0M17.5 10c-.7 0-1.34.24-1.85.64A4.5 4.5 0 0 1 18 14.5v3.5h3.5c.83 0 1.5-.67 1.5-1.5v-3c0-1.93-1.57-3.5-3.5-3.5M10.5 4a3 3 0 1 1-6 0 3 3 0 0 1 6 0M12 11c0-2.48-2.02-4.5-4.5-4.5S3 8.52 3 11v6c0 .83.67 1.5 1.5 1.5h6c.83 0 1.5-.67 1.5-1.5z"/></svg>`,
+    outlook: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="m2 7 10 7 10-7"/></svg>`,
+    skype: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><circle cx="16.5" cy="7.5" r="4"/><circle cx="7.5" cy="16.5" r="4"/><path d="M12 6a6 6 0 0 0-6 6c0 .7.12 1.36.35 1.98A6 6 0 0 0 18 12a6 6 0 0 0-6-6z"/></svg>`,
+    office_365: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg>`,
+    itau: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="3" y="3" width="18" height="18" rx="4"/><text x="12" y="15" text-anchor="middle" font-size="9" font-weight="900" fill="#000" font-family="sans-serif">ITAU</text></svg>`,
+    bradesco: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M8 10h8"/></svg>`,
+    bing: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="m5 3 5 2v11l5-3-2-2-4 1V6l7 3-1 12-10-6z"/></svg>`,
+    zoom: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="3" y="6" width="12" height="12" rx="2"/><path d="m15 10 6-4v12l-6-4z"/></svg>`,
+    chatgpt: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="M22.28 9.87a5.98 5.98 0 0 0-.52-4.94 6.05 6.05 0 0 0-6.51-2.82A6.06 6.06 0 0 0 10.6.49 6.05 6.05 0 0 0 5.2 3.42a6.05 6.05 0 0 0-4.13 4.14 6.06 6.06 0 0 0 1.45 6.37 5.98 5.98 0 0 0 .52 4.94 6.05 6.05 0 0 0 6.51 2.82 6.06 6.06 0 0 0 4.65 1.62 6.05 6.05 0 0 0 5.4-2.93 6.05 6.05 0 0 0 4.13-4.14 6.06 6.06 0 0 0-1.45-6.37"/></svg>`,
+    claude_ai: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`,
+    bet365: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><rect x="3" y="4" width="18" height="16" rx="3"/><text x="12" y="15" text-anchor="middle" font-size="8" font-weight="900" fill="#facc15" font-family="sans-serif">365</text></svg>`,
+    betano: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><circle cx="12" cy="12" r="9"/><text x="12" y="16" text-anchor="middle" font-size="11" font-weight="900" fill="#fff" font-family="sans-serif">B</text></svg>`,
+    betfair: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="m5 15 4-4 4 4M19 9l-4 4-4-4"/></svg>`,
+    blaze: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>`,
+    steam: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="M12 2a10 10 0 0 0-9.95 9l4.5 1.86a3 3 0 0 1 3.45-1.42l3.23-4.66A3.49 3.49 0 0 1 16.5 6a3.5 3.5 0 1 1-3.5 3.5l-4.66 3.23a3 3 0 0 1-1.42 3.45L8.78 20.68A10 10 0 1 0 12 2"/></svg>`,
+    roblox: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="m18.5 5.5-13 3.5 3.5 13 13-3.5zm-6.5 8a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3"/></svg>`,
+    discord: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.929 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.894.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>`,
+    spotify: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#fff"><circle cx="12" cy="12" r="10"/><path d="M7 9c3-1 7-1 10 1M8 12c2.5-.8 5.5-.8 8 .8M9 15c2-.5 4.5-.5 6 .6"/></svg>`,
+    netflix: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#e50914"><rect x="3" y="3" width="18" height="18" rx="3" fill="#000"/><path d="M7 5v14l4-8v8h2V5l-4 8V5z" fill="#e50914"/></svg>`,
+    youtube: `<svg viewBox="0 0 24 24" width="16" height="16" fill="#ff0000"><rect x="2" y="4" width="20" height="16" rx="4" fill="#ff0000"/><polygon points="10 8 16 12 10 16 10 8" fill="#fff"/></svg>`,
+  };
+
+  if (icons[appId]) {
+    return `<div class="app-brand-icon" style="background: ${color};">${icons[appId]}</div>`;
+  }
+
+  // Fallback monogram
+  const initials = (name || appId).substring(0, 2).toUpperCase();
+  return `<div class="app-brand-icon" style="background: ${color}; font-size: 0.75rem;">${escapeHtml(initials)}</div>`;
+}
+
+// ==========================================================
+// Dashboard: Gráfico de Monitoramento 24h & Donut de Dispositivos
+// ==========================================================
+async function renderHeroMonitoringChart() {
+  const svg = document.getElementById('heroTimelineSvg');
+  if (!svg) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/stats/timeline-24h`);
+    if (!res.ok) return;
+    const data = await res.json();
+
+    const badge = document.getElementById('chartBlockedSummary');
+    const totalBlocked = data.reduce((acc, d) => acc + (d.blocked || 0), 0);
+    if (badge) badge.textContent = `${totalBlocked} bloqueadas`;
+
+    const width = 850;
+    const height = 210;
+    const paddingLeft = 35;
+    const paddingRight = 20;
+    const paddingTop = 20;
+    const paddingBottom = 30;
+    const plotW = width - paddingLeft - paddingRight;
+    const plotH = height - paddingTop - paddingBottom;
+
+    const maxQ = Math.max(...data.map(d => d.queries), 1500);
+    const maxVal = Math.ceil(maxQ * 1.1);
+    const stepX = plotW / Math.max(data.length - 1, 1);
+
+    const points = data.map((d, i) => {
+      const x = paddingLeft + i * stepX;
+      const yQ = paddingTop + plotH - (d.queries / maxVal) * plotH;
+      const yB = paddingTop + plotH - ((d.blocked || 0) / maxVal) * plotH;
+      return { x, yQ, yB, ...d };
+    });
+
+    // Curva suavizada (Catmull-Rom para Bézier)
+    function buildSmoothPath(pts, yKey) {
+      if (pts.length < 2) return '';
+      let path = `M ${pts[0].x.toFixed(1)},${pts[0][yKey].toFixed(1)}`;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const p0 = pts[Math.max(i - 1, 0)];
+        const p1 = pts[i];
+        const p2 = pts[i + 1];
+        const p3 = pts[Math.min(i + 2, pts.length - 1)];
+
+        const cp1x = p1.x + (p2.x - p0.x) / 6;
+        const cp1y = p1[yKey] + (p2[yKey] - p0[yKey]) / 6;
+        const cp2x = p2.x - (p3.x - p1.x) / 6;
+        const cp2y = p2[yKey] - (p3[yKey] - p1[yKey]) / 6;
+
+        path += ` C ${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p2.x.toFixed(1)},${p2[yKey].toFixed(1)}`;
+      }
+      return path;
+    }
+
+    const qLine = buildSmoothPath(points, 'yQ');
+    const bLine = buildSmoothPath(points, 'yB');
+    const baselineY = paddingTop + plotH;
+    const qArea = `${qLine} L ${points[points.length - 1].x.toFixed(1)},${baselineY} L ${points[0].x.toFixed(1)},${baselineY} Z`;
+
+    // Linhas de grade e marcadores X
+    let gridLines = '';
+    let xLabels = '';
+    const yGridLevels = [0, 0.33, 0.66, 1];
+    yGridLevels.forEach(lvl => {
+      const y = paddingTop + plotH * (1 - lvl);
+      const val = Math.round(maxVal * lvl);
+      const labelText = val >= 1000 ? (val / 1000).toFixed(1) + 'k' : val;
+      gridLines += `<line x1="${paddingLeft}" y1="${y}" x2="${width - paddingRight}" y2="${y}" stroke="rgba(255,255,255,0.04)" stroke-dasharray="3,3"/>`;
+      gridLines += `<text x="${paddingLeft - 8}" y="${y + 4}" text-anchor="end" fill="#64748b" font-size="10" font-family="var(--font-mono)">${labelText}</text>`;
+    });
+
+    points.forEach((p, idx) => {
+      if (idx % 2 === 0 || idx === points.length - 1) {
+        xLabels += `<text x="${p.x}" y="${height - 8}" text-anchor="middle" fill="#64748b" font-size="10" font-family="var(--font-mono)">${p.time}</text>`;
+      }
+    });
+
+    svg.innerHTML = `
+      <defs>
+        <linearGradient id="heroGreenGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#10b981" stop-opacity="0.38"/>
+          <stop offset="100%" stop-color="#10b981" stop-opacity="0.00"/>
+        </linearGradient>
+      </defs>
+      ${gridLines}
+      <path d="${qArea}" fill="url(#heroGreenGrad)"/>
+      <path d="${qLine}" fill="none" stroke="#10b981" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="${bLine}" fill="none" stroke="#ef4444" stroke-width="1.8" stroke-linecap="round"/>
+      ${xLabels}
+    `;
+  } catch (err) {
+    console.warn('Erro ao desenhar gráfico hero:', err);
+  }
+}
+
+async function renderDeviceDonut() {
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/stats/devices`);
+    if (!res.ok) return;
+    const d = await res.json();
+
+    const centerCount = document.getElementById('donutCenterCount');
+    const summary = document.getElementById('donutDevicesTotalSummary');
+    const onlineEl = document.getElementById('donutOnlineCount');
+    const offlineEl = document.getElementById('donutOfflineCount');
+    const circle = document.getElementById('donutCircleOnline');
+
+    if (centerCount) centerCount.textContent = d.total || 2;
+    if (summary) summary.textContent = `${d.total || 2} dispositivos`;
+    if (onlineEl) onlineEl.textContent = d.online || 2;
+    if (offlineEl) offlineEl.textContent = d.offline || 0;
+
+    if (circle) {
+      const circ = 2 * Math.PI * 48; // ~301.59
+      const ratio = d.total > 0 ? (d.online / d.total) : 1;
+      const offset = circ * (1 - ratio);
+      circle.style.strokeDashoffset = offset;
+    }
+  } catch (err) {
+    console.warn('Erro ao atualizar donut de dispositivos:', err);
+  }
+}
+
+async function loadDashboardTopWidgets() {
+  try {
+    // 1. Aplicações
+    const resApps = await fetch(`${API_BASE}/api/v1/stats/applications`);
+    if (resApps.ok) {
+      const dataApps = await resApps.json();
+      const listTopApps = document.getElementById('listTopApps');
+      const listTopBlockedApps = document.getElementById('listTopBlockedApps');
+
+      if (listTopApps && dataApps.top_used) {
+        const maxQ = Math.max(...dataApps.top_used.map(a => a.queries), 1);
+        listTopApps.innerHTML = dataApps.top_used.map((a, i) => {
+          const rank = i + 1;
+          const rankClass = rank === 1 ? 'top1' : (rank === 2 ? 'top2' : (rank === 3 ? 'top3' : ''));
+          const pct = Math.round((a.queries / maxQ) * 100);
+          const icon = getAppIconSvg(a.id, a.name, a.color);
+
+          return `
+            <li class="top10-item">
+              <div class="top10-bar-bg" style="width: ${pct}%;"></div>
+              <div class="top10-left-group">
+                <span class="top10-rank ${rankClass}">${rank}</span>
+                ${icon}
+                <span class="top10-name" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
+              </div>
+              <span class="top10-count">${a.queries}</span>
+            </li>
+          `;
+        }).join('');
+      }
+
+      if (listTopBlockedApps) {
+        if (!dataApps.top_blocked || dataApps.top_blocked.length === 0) {
+          listTopBlockedApps.innerHTML = `
+            <div class="top10-empty-state">
+              <svg class="empty-cup-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M17 8h1a4 4 0 1 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/><line x1="6" y1="2" x2="6" y2="4"/><line x1="10" y1="2" x2="10" y2="4"/><line x1="14" y1="2" x2="14" y2="4"/>
+              </svg>
+              <span class="empty-cup-text">Nenhum dado encontrado</span>
+            </div>
+          `;
+        } else {
+          const maxB = Math.max(...dataApps.top_blocked.map(a => a.queries), 1);
+          listTopBlockedApps.innerHTML = dataApps.top_blocked.map((a, i) => {
+            const rank = i + 1;
+            const pct = Math.round((a.queries / maxB) * 100);
+            const icon = getAppIconSvg(a.id, a.name, a.color || '#ef4444');
+
+            return `
+              <li class="top10-item">
+                <div class="top10-bar-bg blocked" style="width: ${pct}%;"></div>
+                <div class="top10-left-group">
+                  <span class="top10-rank top1" style="background: rgba(239, 68, 68, 0.2); color: #f87171;">${rank}</span>
+                  ${icon}
+                  <span class="top10-name" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
+                </div>
+                <span class="top10-count" style="color: #f87171;">${a.queries}</span>
+              </li>
+            `;
+          }).join('');
+        }
+      }
+    }
+
+    // 2. Categorias
+    const resCats = await fetch(`${API_BASE}/api/v1/stats/categories`);
+    if (resCats.ok) {
+      const dataCats = await resCats.json();
+      const listTopCats = document.getElementById('listTopCategories');
+      const listTopBlockedCats = document.getElementById('listTopBlockedCategories');
+
+      if (listTopCats && dataCats.top_used) {
+        const maxQ = Math.max(...dataCats.top_used.map(c => c.queries), 1);
+        listTopCats.innerHTML = dataCats.top_used.map((c, i) => {
+          const rank = i + 1;
+          const pct = Math.round((c.queries / maxQ) * 100);
+          return `
+            <li class="top10-item">
+              <div class="top10-bar-bg" style="width: ${pct}%;"></div>
+              <div class="top10-left-group">
+                <span class="top10-rank ${rank === 1 ? 'top1' : (rank === 2 ? 'top2' : '')}">${rank}</span>
+                <span class="top10-name">${escapeHtml(c.name)}</span>
+              </div>
+              <span class="top10-count">${c.queries}</span>
+            </li>
+          `;
+        }).join('');
+      }
+
+      if (listTopBlockedCats) {
+        if (!dataCats.top_blocked || dataCats.top_blocked.length === 0) {
+          listTopBlockedCats.innerHTML = `
+            <div class="top10-empty-state">
+              <svg class="empty-cup-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M17 8h1a4 4 0 1 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/><line x1="6" y1="2" x2="6" y2="4"/><line x1="10" y1="2" x2="10" y2="4"/><line x1="14" y1="2" x2="14" y2="4"/>
+              </svg>
+              <span class="empty-cup-text">Nenhum dado encontrado</span>
+            </div>
+          `;
+        } else {
+          const maxB = Math.max(...dataCats.top_blocked.map(c => c.queries), 1);
+          listTopBlockedCats.innerHTML = dataCats.top_blocked.map((c, i) => {
+            const rank = i + 1;
+            const pct = Math.round((c.queries / maxB) * 100);
+            return `
+              <li class="top10-item">
+                <div class="top10-bar-bg blocked" style="width: ${pct}%;"></div>
+                <div class="top10-left-group">
+                  <span class="top10-rank top1" style="background: rgba(239, 68, 68, 0.2); color: #f87171;">${rank}</span>
+                  <span class="top10-name">${escapeHtml(c.name)}</span>
+                </div>
+                <span class="top10-count" style="color: #f87171;">${c.queries}</span>
+              </li>
+            `;
+          }).join('');
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Erro nos widgets top 10:', err);
+  }
+}
+
+async function loadDashboardGroupsSummary() {
+  const container = document.getElementById('containerDashboardGroupsList');
+  if (!container) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/stats/groups`);
+    if (!res.ok) return;
+    const groups = await res.json();
+
+    container.innerHTML = groups.map(g => `
+      <div class="card" style="padding: 1rem; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <span class="group-dot" style="background: ${g.color}; width: 10px; height: 10px;"></span>
+            <strong style="font-size: 0.88rem;">${escapeHtml(g.name)}</strong>
+          </div>
+          <span class="badge" style="background: rgba(255,255,255,0.06); font-size: 0.72rem;">${g.client_count} disp.</span>
+        </div>
+        <div style="font-size: 0.78rem; color: var(--text-dim); margin-bottom: 0.65rem;">
+          Consultas: <strong>${g.total_queries.toLocaleString()}</strong> | Bloqueadas: <strong style="color: #f87171;">${g.blocked_queries.toLocaleString()}</strong> (${g.block_rate}%)
+        </div>
+        <button class="btn btn-secondary btn-sm" style="width: 100%; font-size: 0.76rem;" onclick="openPolicyForGroup(${g.id})">
+          ⚙️ Ajustar Aplicações &amp; Horário &rarr;
+        </button>
+      </div>
+    `).join('');
+  } catch (err) {
+    console.warn('Erro ao carregar resumo de grupos:', err);
+  }
+}
+
+window.openPolicyForGroup = function(groupId) {
+  state.currentPolicyGroup = groupId;
+  switchTab('policies');
+};
+
+// ==========================================================
+// ABA: POLÍTICAS & GRUPOS (APLICAÇÕES, HORÁRIOS & AGENDAMENTO)
+// ==========================================================
+function setupPoliciesControls() {
+  // Botão voltar do header da política
+  const btnBack = document.getElementById('btnPolicyBackToDashboard');
+  if (btnBack) btnBack.addEventListener('click', () => switchTab('dashboard'));
+
+  // Botão no dashboard para ir às políticas
+  const btnGoPolicies = document.getElementById('btnGoToPoliciesTab');
+  if (btnGoPolicies) btnGoPolicies.addEventListener('click', () => switchTab('policies'));
+
+  // Navegação entre sub-abas da política
+  document.querySelectorAll('.policy-subnav-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const target = tab.getAttribute('data-pol-subtab');
+      switchPolicySubtab(target);
+    });
+  });
+
+  // Seletor de Grupo
+  const selGroup = document.getElementById('selectCurrentPolicyGroup');
+  if (selGroup) {
+    selGroup.addEventListener('change', (e) => {
+      state.currentPolicyGroup = parseInt(e.target.value, 10);
+      loadPolicyApplications(state.currentPolicyGroup);
+      loadPolicySchedule(state.currentPolicyGroup);
+      loadPolicyCategories(state.currentPolicyGroup);
+      loadPolicyGroupDevices(state.currentPolicyGroup);
+      updatePolicyHeaderTitle();
+    });
+  }
+
+  // Busca de Aplicações
+  const searchInput = document.getElementById('inputSearchPolicyApps');
+  if (searchInput) {
+    searchInput.addEventListener('input', debounce((e) => {
+      state.searchAppQuery = e.target.value.toLowerCase().trim();
+      renderPolicyCategoryCards();
+    }, 150));
+  }
+
+  // Filtro "Mostrar somente bloqueadas"
+  const checkOnlyBlocked = document.getElementById('checkFilterOnlyBlockedApps');
+  if (checkOnlyBlocked) {
+    checkOnlyBlocked.addEventListener('change', (e) => {
+      state.filterOnlyBlockedApps = e.target.checked;
+      renderPolicyCategoryCards();
+    });
+  }
+
+  // Switch Habilitar Horário
+  const checkSchedule = document.getElementById('checkEnablePolicySchedule');
+  if (checkSchedule) {
+    checkSchedule.addEventListener('change', (e) => {
+      state.groupSchedule.enabled = e.target.checked;
+      savePolicySchedule();
+    });
+  }
+
+  // Modos de Horário (Totalmente Bloqueado, Parcialmente Bloqueado, Totalmente Liberado)
+  document.querySelectorAll('.mode-card-option').forEach(opt => {
+    opt.addEventListener('click', () => {
+      const mode = opt.getAttribute('data-schedule-mode');
+      setScheduleMode(mode);
+    });
+  });
+
+  // Presets de Agendamento
+  const btnCom = document.getElementById('btnPresetCommercial');
+  if (btnCom) btnCom.addEventListener('click', () => applySchedulePreset('commercial'));
+
+  const btnFull = document.getElementById('btnPresetFullDay');
+  if (btnFull) btnFull.addEventListener('click', () => applySchedulePreset('full_day'));
+
+  const btnWk = document.getElementById('btnPresetWeekend');
+  if (btnWk) btnWk.addEventListener('click', () => applySchedulePreset('weekend'));
+
+  const btnAll = document.getElementById('btnPresetSelectAll');
+  if (btnAll) btnAll.addEventListener('click', () => applySchedulePreset('all'));
+
+  const btnClr = document.getElementById('btnPresetClearAll');
+  if (btnClr) btnClr.addEventListener('click', () => applySchedulePreset('clear'));
+
+  // Salvar Horário
+  const btnSaveSched = document.getElementById('btnSaveScheduleOnly');
+  if (btnSaveSched) btnSaveSched.addEventListener('click', () => savePolicySchedule(true));
+
+  // Salvar Geral
+  const btnSaveAll = document.getElementById('btnSaveAllPolicyChanges');
+  if (btnSaveAll) {
+    btnSaveAll.addEventListener('click', async () => {
+      await savePolicyApplications();
+      await savePolicySchedule();
+      showToast('✨ Todas as regras da política foram salvas com sucesso!');
+    });
+  }
+}
+
+function switchPolicySubtab(subtabId) {
+  state.currentPolicyTab = subtabId;
+  document.querySelectorAll('.policy-subnav-tab').forEach(t => {
+    t.classList.toggle('active', t.getAttribute('data-pol-subtab') === subtabId);
+  });
+  document.querySelectorAll('.policy-tab-pane').forEach(p => {
+    p.classList.toggle('active', p.id === `subtab-policy-${subtabId}`);
+  });
+
+  if (subtabId === 'schedule') {
+    renderWeeklyScheduleGrid();
+  }
+}
+
+async function loadPoliciesSection() {
+  await loadGroups();
+  populatePolicyGroupSelect();
+  updatePolicyHeaderTitle();
+  await loadPolicyApplications(state.currentPolicyGroup);
+  await loadPolicySchedule(state.currentPolicyGroup);
+  loadPolicyCategories(state.currentPolicyGroup);
+  loadPolicyGroupDevices(state.currentPolicyGroup);
+}
+
+function populatePolicyGroupSelect() {
+  const sel = document.getElementById('selectCurrentPolicyGroup');
+  if (!sel) return;
+  sel.innerHTML = state.groups.map(g => `
+    <option value="${g.id}" ${g.id === state.currentPolicyGroup ? 'selected' : ''}>
+      ${escapeHtml(g.name)} (${g.client_count || 0} disp.)
+    </option>
+  `).join('');
+}
+
+function updatePolicyHeaderTitle() {
+  const group = state.groups.find(g => g.id === state.currentPolicyGroup) || state.groups[0];
+  const titleEl = document.getElementById('labelPolicyGroupTitle');
+  if (titleEl && group) {
+    titleEl.textContent = `Política: ${group.name}`;
+  }
+}
+
+// Aplicações: Catálogo, Filtros e Regras
+async function loadPolicyApplications(groupId) {
+  try {
+    // 1. Carregar catálogo se vazio
+    if (!state.catalogApplications || state.catalogApplications.length === 0) {
+      const resCat = await fetch(`${API_BASE}/api/v1/applications`);
+      if (resCat.ok) state.catalogApplications = await resCat.json();
+    }
+
+    // 2. Carregar regras do grupo
+    const resRules = await fetch(`${API_BASE}/api/v1/groups/applications?group_id=${groupId}`);
+    if (resRules.ok) {
+      const data = await resRules.json();
+      state.groupAppRules = data.rules || {};
+    }
+
+    renderPolicyCategoryCards();
+    updateBlockedCountBadge();
+  } catch (err) {
+    console.warn('Erro ao carregar aplicações do grupo:', err);
+  }
+}
+
+function updateBlockedCountBadge() {
+  const badge = document.getElementById('policyAppsBlockedBadge');
+  if (!badge) return;
+  const count = Object.values(state.groupAppRules).filter(v => v === 'block').length;
+  badge.textContent = count;
+}
+
+function renderPolicyCategoryCards() {
+  const container = document.getElementById('gridPolicyCategoryCards');
+  if (!container || !state.catalogApplications) return;
+
+  // Agrupar aplicações por categoria
+  const grouped = {};
+  state.catalogApplications.forEach(app => {
+    if (!grouped[app.category]) grouped[app.category] = [];
+    grouped[app.category].push(app);
+  });
+
+  const categoryLabels = {
+    ai: 'AI',
+    bank: 'Bank',
+    betting: 'Betting',
+    education: 'Education',
+    finance: 'Finance',
+    games: 'Games',
+    google: 'Google',
+    health: 'Health',
+    messaging: 'Messaging',
+    meta: 'Meta',
+    microsoft: 'Microsoft',
+    music: 'Music',
+    streaming: 'Streaming',
+    social: 'Social',
+  };
+
+  const htmlCards = [];
+
+  Object.entries(grouped).forEach(([catKey, apps]) => {
+    // Filtro por busca
+    let filteredApps = apps;
+    if (state.searchAppQuery) {
+      filteredApps = apps.filter(a => a.name.toLowerCase().includes(state.searchAppQuery) || a.domains.some(d => d.includes(state.searchAppQuery)));
+    }
+
+    // Filtro por apenas bloqueadas
+    if (state.filterOnlyBlockedApps) {
+      filteredApps = filteredApps.filter(a => state.groupAppRules[a.id] === 'block');
+    }
+
+    if (filteredApps.length === 0 && (state.searchAppQuery || state.filterOnlyBlockedApps)) {
+      return; // Oculta categoria vazia no filtro
+    }
+
+    // Verifica se todas as apps da categoria estão bloqueadas
+    const allBlocked = apps.length > 0 && apps.every(a => state.groupAppRules[a.id] === 'block');
+    const label = categoryLabels[catKey] || catKey.toUpperCase();
+
+    const appItemsHtml = filteredApps.map(a => {
+      const isBlocked = state.groupAppRules[a.id] === 'block';
+      const icon = getAppIconSvg(a.id, a.name, a.color);
+
+      return `
+        <div class="app-item-row">
+          <div class="app-item-left">
+            ${icon}
+            <span class="app-brand-name" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
+          </div>
+          <label class="tactile-switch">
+            <input type="checkbox" ${isBlocked ? 'checked' : ''} onchange="toggleAppRule('${a.id}', this.checked)">
+            <span class="tactile-slider"></span>
+          </label>
+        </div>
+      `;
+    }).join('');
+
+    htmlCards.push(`
+      <div class="app-category-card">
+        <div class="app-category-card-header">
+          <div class="category-name-count">
+            <span>${label}</span>
+            <span class="category-app-count-tag">(${apps.length})</span>
+          </div>
+          <label class="tactile-switch" title="Bloquear ou liberar toda a categoria">
+            <input type="checkbox" ${allBlocked ? 'checked' : ''} onchange="toggleCategoryMasterRule('${catKey}', this.checked)">
+            <span class="tactile-slider"></span>
+          </label>
+        </div>
+        <div class="apps-scrollable-list">
+          ${appItemsHtml}
+        </div>
+      </div>
+    `);
+  });
+
+  if (htmlCards.length === 0) {
+    container.innerHTML = `
+      <div style="grid-column: 1 / -1; padding: 3rem; text-align: center; color: var(--text-dim);">
+        <p>Nenhuma aplicação encontrada com os filtros atuais.</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = htmlCards.join('');
+}
+
+window.toggleAppRule = async function(appId, isBlocked) {
+  state.groupAppRules[appId] = isBlocked ? 'block' : 'allow';
+  updateBlockedCountBadge();
+  await savePolicyApplications();
+  renderPolicyCategoryCards();
+  showToast(isBlocked ? `🛑 Aplicação bloqueada para este grupo.` : `✅ Aplicação liberada.`);
+};
+
+window.toggleCategoryMasterRule = async function(catKey, isBlocked) {
+  const apps = state.catalogApplications.filter(a => a.category === catKey);
+  apps.forEach(a => {
+    state.groupAppRules[a.id] = isBlocked ? 'block' : 'allow';
+  });
+  updateBlockedCountBadge();
+  await savePolicyApplications();
+  renderPolicyCategoryCards();
+  showToast(isBlocked ? `🛑 Categoria ${catKey.toUpperCase()} inteira bloqueada!` : `✅ Categoria ${catKey.toUpperCase()} liberada.`);
+};
+
+async function savePolicyApplications() {
+  try {
+    await fetch(`${API_BASE}/api/v1/groups/applications`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        group_id: state.currentPolicyGroup,
+        rules: state.groupAppRules
+      })
+    });
+  } catch (err) {
+    console.warn('Erro ao salvar aplicações do grupo:', err);
+  }
+}
+
+// ==========================================================
+// Horário de Funcionamento & Agendamento (Screenshot 2)
+// ==========================================================
+async function loadPolicySchedule(groupId) {
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/groups/schedule?group_id=${groupId}`);
+    if (res.ok) {
+      const data = await res.json();
+      state.groupSchedule = data.schedule || { enabled: true, mode: 'partial_block', slots: [] };
+    }
+
+    const check = document.getElementById('checkEnablePolicySchedule');
+    if (check) check.checked = state.groupSchedule.enabled !== false;
+
+    setScheduleMode(state.groupSchedule.mode || 'partial_block', false);
+    renderWeeklyScheduleGrid();
+  } catch (err) {
+    console.warn('Erro ao carregar agendamento do grupo:', err);
+  }
+}
+
+function setScheduleMode(mode, save = true) {
+  state.groupSchedule.mode = mode;
+  document.querySelectorAll('.mode-card-option').forEach(opt => {
+    opt.classList.toggle('active', opt.getAttribute('data-schedule-mode') === mode);
+  });
+  if (save) {
+    savePolicySchedule();
+    showToast(`Modo alterado para: ${mode === 'total_block' ? 'Totalmente Bloqueado' : (mode === 'total_allow' ? 'Totalmente Liberado' : 'Parcialmente Bloqueado')}`);
+  }
+}
+
+function renderWeeklyScheduleGrid() {
+  const tbody = document.getElementById('tbodyWeeklyGrid');
+  if (!tbody) return;
+
+  const days = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  const today = new Date().getDay(); // 0 a 6
+
+  // Destacar cabeçalho do dia atual na tabela
+  document.querySelectorAll('#tableWeeklySchedule th[data-day-index]').forEach(th => {
+    const dIdx = parseInt(th.getAttribute('data-day-index'), 10);
+    th.classList.toggle('active-day-col', dIdx === today);
+  });
+
+  // Mapear slots em matriz para renderização instantânea
+  // slots: [{ day: 1, start: '08:00', end: '12:00' }, ...]
+  const activeHours = {};
+  (state.groupSchedule.slots || []).forEach(slot => {
+    const sH = parseInt(slot.start.split(':')[0], 10);
+    const eH = parseInt(slot.end.split(':')[0], 10);
+    for (let h = sH; h < eH; h++) {
+      activeHours[`${slot.day}_${h}`] = { start: slot.start, end: slot.end, isFirst: h === sH };
+    }
+  });
+
+  let rowsHtml = '';
+  for (let h = 0; h < 24; h++) {
+    const timeLabel = `${String(h).padStart(2, '0')}:00`;
+    let cellsHtml = '';
+
+    for (let d = 0; d < 7; d++) {
+      const key = `${d}_${h}`;
+      const slotInfo = activeHours[key];
+      const isActive = !!slotInfo;
+
+      let cellContent = '';
+      if (isActive && slotInfo.isFirst) {
+        cellContent = `<div class="schedule-rendered-block">${slotInfo.start} - ${slotInfo.end}</div>`;
+      }
+
+      cellsHtml += `
+        <td class="slot-cell ${isActive ? 'active-slot' : ''}" 
+            data-day="${d}" data-hour="${h}" 
+            onclick="toggleGridHour(${d}, ${h})">
+          ${cellContent}
+        </td>
+      `;
+    }
+
+    rowsHtml += `
+      <tr>
+        <td class="time-label-cell">${timeLabel}</td>
+        ${cellsHtml}
+      </tr>
+    `;
+  }
+
+  tbody.innerHTML = rowsHtml;
+  updateCurrentTimeMarker();
+}
+
+function updateCurrentTimeMarker() {
+  const marker = document.getElementById('currentTimeMarker');
+  const badge = document.getElementById('currentTimeBadge');
+  const wrapper = document.getElementById('calendarTableWrapper');
+  if (!marker || !badge || !wrapper) return;
+
+  const now = new Date();
+  const day = now.getDay(); // 0 a 6
+  const hours = now.getHours();
+  const minutes = now.getMinutes();
+  const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+
+  // Calcular posição Y baseada na hora e minuto (linha do tempo)
+  const headerHeight = 42;
+  const rowHeight = 39;
+  const topY = headerHeight + (hours + minutes / 60) * rowHeight;
+
+  // Calcular posição X baseada na coluna do dia
+  const colWidthPct = 100 / 8; // 1 label + 7 dias
+  const leftX = (day + 1) * colWidthPct;
+
+  marker.style.display = 'block';
+  marker.style.top = `${topY}px`;
+  marker.style.left = `${leftX}%`;
+  marker.style.width = `${colWidthPct}%`;
+  badge.textContent = timeStr;
+}
+
+window.toggleGridHour = function(day, hour) {
+  const currentSlots = state.groupSchedule.slots || [];
+  // Verificar se o clique cai em um intervalo existente
+  const targetTime = `${String(hour).padStart(2, '0')}:00`;
+  const nextTime = `${String(hour + 1).padStart(2, '0')}:00`;
+
+  const existingIdx = currentSlots.findIndex(s => {
+    if (s.day !== day) return false;
+    const sH = parseInt(s.start.split(':')[0], 10);
+    const eH = parseInt(s.end.split(':')[0], 10);
+    return hour >= sH && hour < eH;
+  });
+
+  if (existingIdx !== -1) {
+    // Remove o slot
+    currentSlots.splice(existingIdx, 1);
+  } else {
+    // Adiciona bloco de 1 hora
+    currentSlots.push({ day, start: targetTime, end: nextTime });
+  }
+
+  state.groupSchedule.slots = currentSlots;
+  renderWeeklyScheduleGrid();
+  savePolicySchedule();
+};
+
+function applySchedulePreset(type) {
+  let slots = [];
+  if (type === 'commercial') {
+    // Seg a Sex 08:00 - 12:00 e 14:00 - 18:00 (Screenshot 2)
+    for (let d = 1; d <= 5; d++) {
+      slots.push({ day: d, start: '08:00', end: '12:00' });
+      slots.push({ day: d, start: '14:00', end: '18:00' });
+    }
+  } else if (type === 'full_day') {
+    for (let d = 1; d <= 5; d++) {
+      slots.push({ day: d, start: '08:00', end: '18:00' });
+    }
+  } else if (type === 'weekend') {
+    slots.push({ day: 0, start: '00:00', end: '24:00' });
+    slots.push({ day: 6, start: '00:00', end: '24:00' });
+  } else if (type === 'all') {
+    for (let d = 0; d < 7; d++) {
+      slots.push({ day: d, start: '00:00', end: '24:00' });
+    }
+  } else if (type === 'clear') {
+    slots = [];
+  }
+
+  state.groupSchedule.slots = slots;
+  renderWeeklyScheduleGrid();
+  savePolicySchedule(true);
+  showToast(`Atalho de grade aplicado com sucesso!`);
+}
+
+async function savePolicySchedule(showNotice = false) {
+  const indicator = document.getElementById('scheduleSaveIndicator');
+  if (indicator) indicator.textContent = 'Salvando...';
+
+  try {
+    await fetch(`${API_BASE}/api/v1/groups/schedule`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        group_id: state.currentPolicyGroup,
+        schedule: state.groupSchedule
+      })
+    });
+
+    if (indicator) {
+      indicator.textContent = '✅ Horário salvo!';
+      setTimeout(() => { if (indicator) indicator.textContent = ''; }, 3000);
+    }
+    if (showNotice) {
+      showToast('Horário de funcionamento salvo com sucesso!');
+    }
+  } catch (err) {
+    if (indicator) indicator.textContent = '❌ Erro ao salvar';
+    console.warn('Erro ao salvar horário:', err);
+  }
+}
+
+// Categorias e Vínculos da Política
+async function loadPolicyCategories(groupId) {
+  const container = document.getElementById('containerPolicyCategoriesGrid');
+  if (!container) return;
+
+  await loadCategories();
+  const rules = (state.groupCategoryRules && state.groupCategoryRules[groupId]) || {};
+
+  container.innerHTML = state.availableCategories.map(cat => {
+    const isBlocked = rules[cat.id] === 'block';
+    return `
+      <div class="category-card ${isBlocked ? 'blocked' : 'allowed'}">
+        <div class="category-info">
+          <div class="category-icon-box" style="background: ${cat.color}20; color: ${cat.color};">
+            <i class="${cat.icon || 'fas fa-shield-alt'}"></i>
+          </div>
+          <div>
+            <span class="category-text-title">${escapeHtml(cat.name)}</span>
+            <span class="category-text-desc">${escapeHtml(cat.description)}</span>
+          </div>
+        </div>
+        <button class="category-toggle-btn ${isBlocked ? 'btn-blocked' : 'btn-allowed'}" 
+                onclick="togglePolicyCategoryAction('${cat.id}')">
+          ${isBlocked ? '🚫 Bloqueado' : '✅ Permitido'}
+        </button>
+      </div>
+    `;
+  }).join('');
+}
+
+window.togglePolicyCategoryAction = async function(catId) {
+  const groupId = state.currentPolicyGroup;
+  if (!state.groupCategoryRules[groupId]) state.groupCategoryRules[groupId] = {};
+  const current = state.groupCategoryRules[groupId][catId] || 'allow';
+  state.groupCategoryRules[groupId][catId] = current === 'block' ? 'allow' : 'block';
+
+  await fetch(`${API_BASE}/api/v1/groups/categories`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ group_id: groupId, rules: state.groupCategoryRules[groupId] })
+  });
+
+  loadPolicyCategories(groupId);
+  showToast('Políticas de categoria atualizadas!');
+};
+
+function loadPolicyGroupDevices(groupId) {
+  const tbody = document.getElementById('tbodyPolicyGroupClients');
+  if (!tbody) return;
+
+  const groupClients = (state.clients || []).filter(c => c.group_id === groupId);
+  if (groupClients.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Nenhum dispositivo associado a esta política ainda.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = groupClients.map(c => `
+    <tr>
+      <td>${c.is_remote ? '<span class="tag-badge allowed">Nuvem (DoH)</span>' : '<span class="tag-badge" style="background:rgba(56,189,248,0.15); color:var(--accent-blue)">Wi-Fi Local</span>'}</td>
+      <td><strong>${escapeHtml(c.name)}</strong></td>
+      <td><code>${c.ip}</code></td>
+      <td><span class="badge-status ${c.status === 'revoked' ? 'offline' : 'online'}">${c.status === 'revoked' ? 'Revogado' : 'Ativo'}</span></td>
+      <td>${escapeHtml(c.comment || '-')}</td>
+    </tr>
+  `).join('');
+}
+
+// Atalho de Busca Global (Ctrl + K)
+function setupSidebarSearch() {
+  const input = document.getElementById('sidebarSearchInput');
+  window.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      if (input) {
+        input.focus();
+        input.select();
+      }
+    }
+  });
+
+  if (input) {
+    input.addEventListener('input', debounce((e) => {
+      const q = e.target.value.toLowerCase().trim();
+      if (!q) return;
+
+      // Se o usuário buscar algo de aplicação ou política, navega para a tela
+      const foundApp = state.catalogApplications.find(a => a.name.toLowerCase().includes(q));
+      if (foundApp) {
+        switchTab('policies');
+        const appSearch = document.getElementById('inputSearchPolicyApps');
+        if (appSearch) {
+          appSearch.value = q;
+          state.searchAppQuery = q;
+          renderPolicyCategoryCards();
+        }
+      }
+    }, 300));
+  }
+}
+
+// Emil Kowalski Spring Toast Notification
+function showToast(message) {
+  let toast = document.getElementById('coorpGlobalToast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'coorpGlobalToast';
+    toast.className = 'coorp-toast';
+    document.body.appendChild(toast);
+  }
+
+  toast.innerHTML = `
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#10b981" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+    <span>${escapeHtml(message)}</span>
+  `;
+  toast.classList.add('show');
+
+  setTimeout(() => {
+    toast.classList.remove('show');
+  }, 3200);
+}
+
 
 
