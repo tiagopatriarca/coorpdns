@@ -223,10 +223,11 @@ func (d *DB) CreateSession(userID int64, duration time.Duration) (string, error)
 		return "", err
 	}
 	token := "ses_" + hex.EncodeToString(tokenBytes)
-	expiresAt := time.Now().Add(duration)
+	now := time.Now().UTC()
+	expiresAt := now.Add(duration)
 
 	// Remove sessões expiradas antes de criar uma nova
-	d.db.Exec("DELETE FROM sessions WHERE expires_at < datetime('now')")
+	d.db.Exec("DELETE FROM sessions WHERE expires_at < ?", now)
 
 	query := "INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)"
 	_, err := d.db.Exec(query, token, userID, expiresAt)
@@ -246,21 +247,29 @@ func (d *DB) ValidateSession(token string) (*UserWithGroups, error) {
 		SELECT u.id, u.username, u.full_name, u.role, u.created_at, u.updated_at, s.expires_at
 		FROM sessions s
 		JOIN users u ON s.user_id = u.id
-		WHERE s.token = ? AND s.expires_at > datetime('now')
+		WHERE s.token = ?
 	`
 	var u UserWithGroups
 	var expiresAt time.Time
 	err := d.db.QueryRow(query, token).Scan(&u.ID, &u.Username, &u.FullName, &u.Role, &u.CreatedAt, &u.UpdatedAt, &expiresAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, errors.New("sessão inválida ou expirada por inatividade")
+			return nil, errors.New("sessão inválida")
 		}
 		return nil, err
 	}
 
+	now := time.Now().UTC()
+	// Verifica se a sessão expirou
+	if now.After(expiresAt) {
+		d.db.Exec("DELETE FROM sessions WHERE token = ?", token)
+		return nil, errors.New("sessão expirada por inatividade")
+	}
+
 	// Sliding Session: se o usuário estiver ativo e faltarem menos de 25 minutos, renova por mais 30 minutos
-	if time.Until(expiresAt) < 25*time.Minute {
-		d.db.Exec("UPDATE sessions SET expires_at = datetime('now', '+30 minutes') WHERE token = ?", token)
+	if expiresAt.Sub(now) < 25*time.Minute {
+		newExpires := now.Add(30 * time.Minute)
+		d.db.Exec("UPDATE sessions SET expires_at = ? WHERE token = ?", newExpires, token)
 	}
 
 	groups, err := d.GetUserGroupIDs(u.ID, u.Role)

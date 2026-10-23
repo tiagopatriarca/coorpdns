@@ -501,7 +501,13 @@ async function loadGroupReport() {
 
   try {
     const res = await fetch(`${API_BASE}/api/v1/reports/group?group_id=${state.selectedGroupForReport}&days=${state.reportDays}`);
-    if (!res.ok) throw new Error();
+    if (!res.ok) {
+      if (res.status === 401) {
+        showLoginScreen('Sua sessão expirou por inatividade. Faça login novamente.');
+        return;
+      }
+      throw new Error(`HTTP ${res.status}`);
+    }
     const data = await res.json();
 
     summaryStrip.innerHTML = `
@@ -618,7 +624,8 @@ async function loadGroupReport() {
     }).join('');
 
   } catch (err) {
-    container.innerHTML = '<div class="text-center text-red" style="padding: 2rem;">Erro ao carregar dados do grupo.</div>';
+    console.error('Erro em loadGroupReport:', err);
+    container.innerHTML = '<div class="text-center text-red" style="padding: 2rem;">Erro ao carregar dados do grupo: ' + escapeHtml(err.message || 'Falha na requisição') + '</div>';
   }
 }
 
@@ -856,7 +863,12 @@ async function loadLiveLogs() {
 
   try {
     const res = await fetch(`${API_BASE}/api/v1/logs?limit=50&domain=${encodeURIComponent(search)}&status=${status}`);
-    if (!res.ok) return;
+    if (!res.ok) {
+      if (res.status === 401) {
+        showLoginScreen('Sua sessão expirou por inatividade. Faça login novamente.');
+      }
+      return;
+    }
     const logs = await res.json();
 
     if (!logs || logs.length === 0) {
@@ -1453,8 +1465,8 @@ async function quickAllowDomain(domain) {
 // Utilitários
 // ==========================================================
 function escapeHtml(str) {
-  if (!str) return '';
-  return str.replace(/[&<>"']/g, m => ({
+  if (str === null || str === undefined) return '';
+  return String(str).replace(/[&<>"']/g, m => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
   }[m]));
 }
