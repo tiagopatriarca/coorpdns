@@ -57,6 +57,23 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Utilitários Globais de Exibição */
+.hidden {
+  display: none !important;
+}
+
+.chevron-icon {
+  display: inline-block;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: center;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+.chevron-icon.collapsed {
+  transform: rotate(-90deg) !important;
+}
+
 /* Layout Principal */
 .app-layout {
   display: flex;
@@ -767,9 +784,17 @@ body {
   white-space: nowrap;
 }
 
+#tableClientsList th:last-child,
+#tableClientsList td:last-child {
+  overflow: visible;
+  text-align: right;
+}
+
 #tableClientsList .btn {
   padding: 0.22rem 0.52rem;
   font-size: 0.72rem;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 /* Header da Aba Dispositivos - Alinhado em duas linhas */

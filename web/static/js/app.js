@@ -541,7 +541,7 @@ async function loadGroupReport() {
                 <div class="device-category-block" style="border-left: 3.5px solid ${cat.color || '#3b82f6'};">
                   <div class="device-category-header" onclick="toggleDeviceCategory('${catBlockId}')">
                     <div class="device-category-title">
-                      <span style="font-size: 1.15rem;">${cat.icon || '📁'}</span>
+                      <span style="font-size: 1.15rem;">${renderCategoryIcon(cat.icon)}</span>
                       <span style="color: ${cat.color || 'var(--text-main)'}; font-weight: 600;">${escapeHtml(cat.category_name)}</span>
                       <span class="badge" style="background: rgba(255, 255, 255, 0.08); font-size: 0.72rem; padding: 0.15rem 0.45rem; border-radius: 4px; color: var(--text-muted);">${cat.domains_count} ${cat.domains_count === 1 ? 'site' : 'sites'}</span>
                     </div>
@@ -552,7 +552,7 @@ async function loadGroupReport() {
                           🛡️ ${cat.blocked_queries.toLocaleString()} bloqueados
                         </span>
                       ` : ''}
-                      <span id="chevron-${catBlockId}" style="font-size: 0.75rem; color: var(--text-dim); transition: transform 0.2s;">▼</span>
+                      <span id="chevron-${catBlockId}" class="chevron-icon">▼</span>
                     </div>
                   </div>
                   <div id="${catBlockId}" class="device-category-domains">
@@ -595,7 +595,7 @@ async function loadGroupReport() {
 
       return `
         <div class="group-device-card" style="border-left: 4px solid ${data.group_color || '#10b981'};">
-          <div class="group-device-header" onclick="toggleGroupDeviceCard('group-dev-body-${idx}')">
+          <div class="group-device-header" onclick="toggleGroupDeviceCard('group-dev-body-${idx}', '${idx}')">
             <div class="group-device-meta">
               <span style="font-weight: 700; font-size: 1.05rem;">${escapeHtml(dev.client_name)}</span>
               ${typeBadge}
@@ -606,7 +606,7 @@ async function loadGroupReport() {
               <span><strong>${dev.total_queries.toLocaleString()}</strong> consultas</span>
               <span class="${dev.blocked_queries > 0 ? 'text-red' : 'text-muted'}"><strong>${dev.blocked_queries.toLocaleString()}</strong> bloqueadas (${dev.block_rate.toFixed(0)}%)</span>
               <button class="btn btn-secondary btn-sm" style="pointer-events: none;">
-                Categorias (${dev.categories ? dev.categories.length : 0}) ▼
+                Categorias (${dev.categories ? dev.categories.length : 0}) <span id="chevron-dev-${idx}" class="chevron-icon">▼</span>
               </button>
             </div>
           </div>
@@ -622,20 +622,54 @@ async function loadGroupReport() {
   }
 }
 
-function toggleGroupDeviceCard(id) {
+function renderCategoryIcon(icon) {
+  if (!icon) return '📁';
+  const iconMap = {
+    'fa-gamepad': '🎮',
+    'fa-film': '🎬',
+    'fa-bullhorn': '📢',
+    'fa-user-secret': '📡',
+    'fa-users': '💬',
+    'fa-dice': '🎲',
+    'fa-ban': '🔞',
+    'fa-download': '⚡',
+    'fa-shield-alt': '🛡️',
+    'fa-briefcase': '💼',
+    'fa-music': '🎵',
+    'fa-tv': '📺',
+    'fa-video': '📹'
+  };
+  for (const [key, emoji] of Object.entries(iconMap)) {
+    if (icon.includes(key)) {
+      return emoji;
+    }
+  }
+  if (icon.startsWith('fa') || icon.includes('fa-')) {
+    return `<i class="${icon}"></i>`;
+  }
+  return icon;
+}
+
+window.toggleGroupDeviceCard = function(id, devIdx) {
   const el = document.getElementById(id);
+  const chevron = document.getElementById(`chevron-dev-${devIdx}`);
   if (el) {
     el.classList.toggle('hidden');
+    const isHidden = el.classList.contains('hidden');
+    if (chevron) {
+      chevron.classList.toggle('collapsed', isHidden);
+    }
   }
-}
+};
 
 window.toggleDeviceCategory = function(id) {
   const el = document.getElementById(id);
   const chevron = document.getElementById(`chevron-${id}`);
   if (el) {
     el.classList.toggle('hidden');
+    const isHidden = el.classList.contains('hidden');
     if (chevron) {
-      chevron.style.transform = el.classList.contains('hidden') ? 'rotate(-90deg)' : 'rotate(0deg)';
+      chevron.classList.toggle('collapsed', isHidden);
     }
   }
 };
@@ -1235,22 +1269,22 @@ async function loadClients() {
             ${isRevoked ? `<span class="tag-badge blocked" style="font-size:0.7rem; padding:0.1rem 0.35rem; margin-left:0.35rem;">Revogado</span>` : ''}
           </td>
           <td title="${escapeHtml(c.comment || '')}">${escapeHtml(c.comment || '-')}</td>
-          <td style="text-align: right;">
-            <div style="display: flex; gap: 0.35rem; justify-content: flex-end; align-items: center;">
+          <td style="text-align: right; overflow: visible;">
+            <div style="display: inline-flex; gap: 0.35rem; justify-content: flex-end; align-items: center; white-space: nowrap;">
               ${isRemote && !isRevoked ? (c.os_type === 'linux' ? `
-                <button class="btn btn-sm" style="background: rgba(234, 179, 8, 0.15); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.3); font-weight: 600;" onclick="copyLinuxInstallCommand('${c.auth_token}')" title="Copiar comando Linux Bash para instalar neste PC">
+                <button class="btn btn-sm" style="background: rgba(234, 179, 8, 0.15); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.3); font-weight: 600; white-space: nowrap; flex-shrink: 0;" onclick="copyLinuxInstallCommand('${c.auth_token}')" title="Copiar comando Linux Bash para instalar neste PC">
                   🐧 Instalar
                 </button>
               ` : `
-                <button class="btn btn-sm" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-weight: 600;" onclick="copyPsInstallCommand('${c.auth_token}')" title="Copiar comando PowerShell Admin para instalar neste PC">
+                <button class="btn btn-sm" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-weight: 600; white-space: nowrap; flex-shrink: 0;" onclick="copyPsInstallCommand('${c.auth_token}')" title="Copiar comando PowerShell Admin para instalar neste PC">
                   ⚡ Instalar
                 </button>
               `) : ''}
-              <button class="btn btn-secondary btn-sm" onclick="openEditClient('${c.ip}', '${escapeHtml(c.name)}', '${escapeHtml(c.comment)}', ${c.group_id || 1})">
+              <button class="btn btn-secondary btn-sm" style="white-space: nowrap; flex-shrink: 0;" onclick="openEditClient('${c.ip}', '${escapeHtml(c.name)}', '${escapeHtml(c.comment)}', ${c.group_id || 1})">
                 Editar
               </button>
               ${isRemote && !isRevoked ? `
-                <button class="btn btn-danger btn-sm" onclick="revokeRemoteClient('${c.auth_token}')">
+                <button class="btn btn-danger btn-sm" style="white-space: nowrap; flex-shrink: 0;" onclick="revokeRemoteClient('${c.auth_token}')">
                   Revogar
                 </button>
               ` : ''}
