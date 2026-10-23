@@ -104,13 +104,15 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		s.loginLimiter.Reset(clientIP)
 	}
 
-	token, err := s.storage.CreateSession(user.ID, 30*24*time.Hour)
+	token, err := s.storage.CreateSession(user.ID, 30*time.Minute)
 	if err != nil {
 		http.Error(w, "Erro ao criar sessão: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	isSecure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	// Cookie de Sessão: MaxAge e Expires não são definidos para que o navegador
+	// destrua o cookie da memória ao fechar o navegador/janela
 	http.SetCookie(w, &http.Cookie{
 		Name:     "coorpdns_session",
 		Value:    token,
@@ -118,7 +120,6 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true,
 		Secure:   isSecure,
 		SameSite: http.SameSiteLaxMode,
-		MaxAge:   30 * 24 * 3600, // 30 dias
 	})
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
@@ -229,6 +230,20 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		req.Username = strings.TrimSpace(req.Username)
+		req.FullName = strings.TrimSpace(req.FullName)
+		if len(req.Username) < 3 {
+			http.Error(w, "O nome de usuário deve possuir no mínimo 3 caracteres", http.StatusBadRequest)
+			return
+		}
+		if len(req.Password) < 6 {
+			http.Error(w, "A senha deve possuir no mínimo 6 caracteres para segurança corporativa", http.StatusBadRequest)
+			return
+		}
+		if req.Role != "admin" && req.Role != "operator" {
+			req.Role = "operator"
+		}
+
 		user, err := s.storage.CreateUser(req.Username, req.Password, req.FullName, req.Role, req.GroupIDs)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -266,6 +281,17 @@ func (s *Server) handleUserItem(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Dados inválidos", http.StatusBadRequest)
+			return
+		}
+
+		req.Username = strings.TrimSpace(req.Username)
+		req.FullName = strings.TrimSpace(req.FullName)
+		if req.Username != "" && len(req.Username) < 3 {
+			http.Error(w, "O nome de usuário deve possuir no mínimo 3 caracteres", http.StatusBadRequest)
+			return
+		}
+		if req.Password != "" && len(req.Password) < 6 {
+			http.Error(w, "A nova senha deve possuir no mínimo 6 caracteres para segurança corporativa", http.StatusBadRequest)
 			return
 		}
 

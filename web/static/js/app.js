@@ -1780,9 +1780,20 @@ async function saveSupportConfig() {
 }
 
 // ==========================================================
-// Autenticação & Sessão (Login, Logout, RBAC)
+// Autenticação & Sessão (Login, Logout, RBAC, Inatividade)
 // ==========================================================
 async function checkAuth() {
+  // Segurança de Aba/Navegador: se a aba ou o navegador foi fechado,
+  // sessionStorage é descartado, exigindo login limpo
+  const isTabSessionActive = sessionStorage.getItem('coorp_session_active');
+  if (!isTabSessionActive) {
+    try {
+      await fetch(`${API_BASE}/api/v1/auth/logout`, { method: 'POST' });
+    } catch (_) {}
+    showLoginScreen();
+    return false;
+  }
+
   try {
     const res = await fetch(`${API_BASE}/api/v1/auth/me`);
     if (res.ok) {
@@ -1790,7 +1801,7 @@ async function checkAuth() {
       onAuthenticated(user);
       return true;
     } else {
-      showLoginScreen();
+      showLoginScreen('Sua sessão expirou por inatividade. Faça login novamente.');
       return false;
     }
   } catch (err) {
@@ -1799,13 +1810,24 @@ async function checkAuth() {
   }
 }
 
-function showLoginScreen() {
+function showLoginScreen(message) {
   state.currentUser = null;
+  sessionStorage.removeItem('coorp_session_active');
+  sessionStorage.removeItem('coorp_last_activity');
+  stopInactivityMonitor();
+
   const loginOverlay = document.getElementById('loginOverlay');
   if (loginOverlay) {
     loginOverlay.classList.remove('hidden');
     const alertBox = document.getElementById('loginAlert');
-    if (alertBox) alertBox.classList.add('hidden');
+    if (alertBox) {
+      if (message) {
+        alertBox.textContent = message;
+        alertBox.classList.remove('hidden');
+      } else {
+        alertBox.classList.add('hidden');
+      }
+    }
     const passInput = document.getElementById('loginPassword');
     if (passInput) passInput.value = '';
     setTimeout(() => {
@@ -1817,6 +1839,12 @@ function showLoginScreen() {
 
 function onAuthenticated(user) {
   state.currentUser = user;
+  sessionStorage.setItem('coorp_session_active', '1');
+  sessionStorage.setItem('coorp_last_activity', Date.now().toString());
+
+  // Inicia o monitor corporativo de inatividade (30 minutos)
+  startInactivityMonitor();
+
   const loginOverlay = document.getElementById('loginOverlay');
   if (loginOverlay) loginOverlay.classList.add('hidden');
 
@@ -1890,6 +1918,8 @@ function setupAuthControls() {
         });
         if (res.ok) {
           const data = await res.json();
+          sessionStorage.setItem('coorp_session_active', '1');
+          sessionStorage.setItem('coorp_last_activity', Date.now().toString());
           onAuthenticated(data.user);
         } else {
           const errText = await res.text();
@@ -1918,9 +1948,121 @@ function setupAuthControls() {
       try {
         await fetch(`${API_BASE}/api/v1/auth/logout`, { method: 'POST' });
       } catch (_) {}
-      showLoginScreen();
+      sessionStorage.removeItem('coorp_session_active');
+      sessionStorage.removeItem('coorp_last_activity');
+      showLoginScreen('Você encerrou sua sessão com sucesso.');
     });
   }
+}
+
+// ==========================================================
+// Monitor de Inatividade Corporativa (Timeout de 30 Minutos)
+// ==========================================================
+const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutos sem interação
+const INACTIVITY_WARNING_MS = 28 * 60 * 1000; // 28 minutos (aviso prévio 2 min antes)
+let lastActivityTimestamp = Date.now();
+let inactivityIntervalId = null;
+let isWarningModalOpen = false;
+
+function recordUserActivity() {
+  lastActivityTimestamp = Date.now();
+  sessionStorage.setItem('coorp_last_activity', lastActivityTimestamp.toString());
+  if (isWarningModalOpen) {
+    hideInactivityWarning();
+  }
+}
+
+function startInactivityMonitor() {
+  lastActivityTimestamp = Date.now();
+  sessionStorage.setItem('coorp_last_activity', lastActivityTimestamp.toString());
+  stopInactivityMonitor();
+
+  // Escuta interações reais do usuário na tela com throttling
+  const activityEvents = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
+  let throttle = false;
+  activityEvents.forEach(evt => {
+    window.addEventListener(evt, () => {
+      if (!throttle) {
+        throttle = true;
+        recordUserActivity();
+        setTimeout(() => { throttle = false; }, 1000);
+      }
+    }, { passive: true });
+  });
+
+  // Botões do modal de aviso de expiração iminente
+  const btnKeepActive = document.getElementById('btnKeepActive');
+  if (btnKeepActive) {
+    btnKeepActive.onclick = () => {
+      recordUserActivity();
+      fetch(`${API_BASE}/api/v1/auth/me`).catch(() => {});
+      hideInactivityWarning();
+    };
+  }
+
+  const btnLogoutNowInactivity = document.getElementById('btnLogoutNowInactivity');
+  if (btnLogoutNowInactivity) {
+    btnLogoutNowInactivity.onclick = () => {
+      hideInactivityWarning();
+      handleForceLogout('Sessão encerrada pelo usuário.');
+    };
+  }
+
+  // Checagem periódica a cada 2 segundos
+  inactivityIntervalId = setInterval(checkInactivityLoop, 2000);
+}
+
+function stopInactivityMonitor() {
+  if (inactivityIntervalId) {
+    clearInterval(inactivityIntervalId);
+    inactivityIntervalId = null;
+  }
+  hideInactivityWarning();
+}
+
+function checkInactivityLoop() {
+  if (!state.currentUser) return;
+
+  const now = Date.now();
+  const elapsed = now - lastActivityTimestamp;
+
+  // 1. Expirou os 30 minutos: encerra a sessão imediatamente
+  if (elapsed >= INACTIVITY_TIMEOUT_MS) {
+    stopInactivityMonitor();
+    handleForceLogout('Sua sessão foi encerrada automaticamente por inatividade (30 minutos sem interação).');
+    return;
+  }
+
+  // 2. Faltam 2 minutos (atingiu 28 min): exibe modal de aviso prévio com contagem regressiva
+  if (elapsed >= INACTIVITY_WARNING_MS) {
+    if (!isWarningModalOpen) {
+      showInactivityWarning();
+    }
+    const remainingSeconds = Math.max(0, Math.ceil((INACTIVITY_TIMEOUT_MS - elapsed) / 1000));
+    const countdownEl = document.getElementById('inactivityCountdown');
+    if (countdownEl) {
+      countdownEl.textContent = remainingSeconds.toString();
+    }
+  }
+}
+
+function showInactivityWarning() {
+  isWarningModalOpen = true;
+  const modal = document.getElementById('modalInactivityWarning');
+  if (modal) modal.classList.remove('hidden');
+}
+
+function hideInactivityWarning() {
+  isWarningModalOpen = false;
+  const modal = document.getElementById('modalInactivityWarning');
+  if (modal) modal.classList.add('hidden');
+}
+
+async function handleForceLogout(reasonMessage) {
+  try {
+    await fetch(`${API_BASE}/api/v1/auth/logout`, { method: 'POST' });
+  } catch (_) {}
+  showLoginScreen(reasonMessage);
 }
 
 // ==========================================================

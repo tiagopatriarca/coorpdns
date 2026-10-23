@@ -213,8 +213,11 @@ func (d *DB) AuthenticateUser(username, password string) (*UserWithGroups, error
 	return &u, nil
 }
 
-// CreateSession cria um token de sessão de 30 dias para o usuário autenticado
+// CreateSession cria um token de sessão com expiração de inatividade (padrão 30 minutos)
 func (d *DB) CreateSession(userID int64, duration time.Duration) (string, error) {
+	if duration <= 0 {
+		duration = 30 * time.Minute
+	}
 	tokenBytes := make([]byte, 24)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		return "", err
@@ -233,25 +236,31 @@ func (d *DB) CreateSession(userID int64, duration time.Duration) (string, error)
 	return token, nil
 }
 
-// ValidateSession verifica se um token de sessão é válido e retorna o usuário com grupos
+// ValidateSession verifica se um token de sessão é válido e renova a expiração por inatividade (sliding session)
 func (d *DB) ValidateSession(token string) (*UserWithGroups, error) {
 	if token == "" {
 		return nil, errors.New("token ausente")
 	}
 
 	query := `
-		SELECT u.id, u.username, u.full_name, u.role, u.created_at, u.updated_at
+		SELECT u.id, u.username, u.full_name, u.role, u.created_at, u.updated_at, s.expires_at
 		FROM sessions s
 		JOIN users u ON s.user_id = u.id
 		WHERE s.token = ? AND s.expires_at > datetime('now')
 	`
 	var u UserWithGroups
-	err := d.db.QueryRow(query, token).Scan(&u.ID, &u.Username, &u.FullName, &u.Role, &u.CreatedAt, &u.UpdatedAt)
+	var expiresAt time.Time
+	err := d.db.QueryRow(query, token).Scan(&u.ID, &u.Username, &u.FullName, &u.Role, &u.CreatedAt, &u.UpdatedAt, &expiresAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, errors.New("sessão inválida ou expirada")
+			return nil, errors.New("sessão inválida ou expirada por inatividade")
 		}
 		return nil, err
+	}
+
+	// Sliding Session: se o usuário estiver ativo e faltarem menos de 25 minutos, renova por mais 30 minutos
+	if time.Until(expiresAt) < 25*time.Minute {
+		d.db.Exec("UPDATE sessions SET expires_at = datetime('now', '+30 minutes') WHERE token = ?", token)
 	}
 
 	groups, err := d.GetUserGroupIDs(u.ID, u.Role)
