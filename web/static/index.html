@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20261022_6">
+  <link rel="stylesheet" href="css/style.css?v=20261022_8">
 </head>
 <body>
   <!-- TELA DE LOGIN / AUTENTICAÇÃO -->
@@ -876,22 +876,21 @@
             </div>
           </div>
 
-          <div class="table-container">
+          <div class="table-container compact">
             <table class="data-table font-mono-table" id="tableLiveLogs">
               <thead>
                 <tr>
-                  <th>Horário</th>
-                  <th>Cliente</th>
-                  <th>Tipo</th>
-                  <th>Domínio</th>
-                  <th>Status</th>
-                  <th>Destino / Regra</th>
-                  <th>Latência</th>
-                  <th>Ação</th>
+                  <th style="width: 10%;">Horário</th>
+                  <th style="width: 24%;">Dispositivo</th>
+                  <th style="width: 8%;">Tipo</th>
+                  <th style="width: 32%;">Domínio</th>
+                  <th style="width: 11%;">Status</th>
+                  <th style="width: 15%;">Destino / Regra</th>
+                  <th style="width: 80px; text-align: center;">Ação</th>
                 </tr>
               </thead>
               <tbody id="tbodyLiveLogs">
-                <tr><td colspan="8" class="text-center text-muted">Aguardando consultas...</td></tr>
+                <tr><td colspan="7" class="text-center text-muted">Aguardando consultas...</td></tr>
               </tbody>
             </table>
           </div>
@@ -901,57 +900,61 @@
       <!-- ABA 4: DISPOSITIVOS (CLIENTES LOCAIS E REMOTOS) -->
       <section id="tab-clients" class="tab-pane">
         <div class="card">
-          <div class="card-header">
-            <div>
-              <h3>Dispositivos Identificados (Wi-Fi Local & Clientes Remotos na Nuvem)</h3>
+          <div class="devices-card-header">
+            <div class="devices-header-text">
+              <h3>Dispositivos Identificados (Wi-Fi Local &amp; Clientes Remotos na Nuvem)</h3>
               <p class="card-desc">Organize aparelhos em grupos e cadastre máquinas remotas autenticadas por token</p>
             </div>
-            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-              <button id="btnOpenGroupCategoriesModal" class="btn btn-secondary btn-sm" title="Defina quais categorias de sites são liberadas ou bloqueadas por grupo">
-                🛡️ Políticas de Categorias
-              </button>
-              <button id="btnOpenBlockPageSettingsModal" class="btn btn-secondary btn-sm" title="Configure a página de bloqueio exibida ao usuário e contatos de suporte">
-                🚫 Página de Bloqueio & Suporte
-              </button>
-              <a href="/blocked?domain=bet365.com&category=gambling&group=Crian%C3%A7as%20%2F%20Kids&client=192.168.1.72" target="_blank" class="btn btn-secondary btn-sm" title="Abre uma prévia da página de bloqueio que o usuário final vê" style="text-decoration: none;">
-                👁️ Ver Página de Bloqueio
-              </a>
-              <button id="btnOpenActiveDirectoryModal" class="btn btn-secondary btn-sm" title="Configure integração com Active Directory e Controladores de Domínio">
-                🏢 Active Directory (AD)
-              </button>
-              <button id="btnOpenGroupManagerModal" class="btn btn-secondary btn-sm">
-                📁 Gerenciar Grupos
-              </button>
-              <a href="/downloads/coorpdns-agent.msi" download class="btn btn-secondary btn-sm" title="Baixar Instalador MSI Oficial para Windows (GPO / Active Directory / SCCM)" style="text-decoration: none;">
-                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                Baixar MSI (.msi)
-              </a>
-              <a href="/downloads/coorpdns-agent.exe" download class="btn btn-secondary btn-sm" title="Baixar Binário Executável Portátil para Windows" style="text-decoration: none;">
-                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-                Baixar EXE (.exe)
-              </a>
-              <button id="btnOpenNewRemoteClientModal" class="btn btn-primary btn-sm">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-                + Cadastrar Dispositivo Remoto
-              </button>
+            <div class="devices-header-actions">
+              <!-- Linha 1 de Botões Alinhados -->
+              <div class="devices-actions-row">
+                <button id="btnOpenNewRemoteClientModal" class="btn btn-primary btn-sm">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+                  + Cadastrar Dispositivo Remoto
+                </button>
+                <button id="btnOpenGroupCategoriesModal" class="btn btn-secondary btn-sm" title="Defina quais categorias de sites são liberadas ou bloqueadas por grupo">
+                  🛡️ Políticas de Categorias
+                </button>
+                <button id="btnOpenGroupManagerModal" class="btn btn-secondary btn-sm">
+                  📁 Gerenciar Grupos
+                </button>
+                <button id="btnOpenActiveDirectoryModal" class="btn btn-secondary btn-sm" title="Configure integração com Active Directory e Controladores de Domínio">
+                  🏢 Active Directory (AD)
+                </button>
+              </div>
+              <!-- Linha 2 de Botões Alinhados -->
+              <div class="devices-actions-row">
+                <button id="btnOpenBlockPageSettingsModal" class="btn btn-secondary btn-sm" title="Configure a página de bloqueio exibida ao usuário e contatos de suporte">
+                  🚫 Página de Bloqueio &amp; Suporte
+                </button>
+                <a href="/blocked?domain=bet365.com&category=gambling&group=Crian%C3%A7as%20%2F%20Kids&client=192.168.1.72" target="_blank" class="btn btn-secondary btn-sm" title="Abre uma prévia da página de bloqueio que o usuário final vê" style="text-decoration: none;">
+                  👁️ Ver Página de Bloqueio
+                </a>
+                <a href="/downloads/coorpdns-agent.msi" download class="btn btn-secondary btn-sm" title="Baixar Instalador MSI Oficial para Windows (GPO / Active Directory / SCCM)" style="text-decoration: none;">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Baixar MSI (.msi)
+                </a>
+                <a href="/downloads/coorpdns-agent.exe" download class="btn btn-secondary btn-sm" title="Baixar Binário Executável Portátil para Windows" style="text-decoration: none;">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                  Baixar EXE (.exe)
+                </a>
+              </div>
             </div>
           </div>
 
-          <div class="table-container">
+          <div class="table-container compact">
             <table class="data-table" id="tableClientsList">
               <thead>
                 <tr>
-                  <th>Tipo</th>
-                  <th>Grupo</th>
-                  <th>Nome do Dispositivo</th>
-                  <th>IP / Identificador</th>
-                  <th>Token DoH / Status</th>
-                  <th>Comentário / Uso</th>
-                  <th>Ações</th>
+                  <th style="width: 14%;">Tipo</th>
+                  <th style="width: 18%;">Grupo</th>
+                  <th style="width: 26%;">Nome do Dispositivo</th>
+                  <th style="width: 24%;">Comentário / Uso</th>
+                  <th style="width: 18%; text-align: right;">Ações</th>
                 </tr>
               </thead>
               <tbody id="tbodyClientsList">
-                <tr><td colspan="7" class="text-center text-muted">Carregando clientes...</td></tr>
+                <tr><td colspan="5" class="text-center text-muted">Carregando clientes...</td></tr>
               </tbody>
             </table>
           </div>
@@ -1577,6 +1580,6 @@
     </div>
   </div>
 
-  <script src="js/app.js?v=20261022_5"></script>
+  <script src="js/app.js?v=20261022_8"></script>
 </body>
 </html>

@@ -826,7 +826,7 @@ async function loadLiveLogs() {
     const logs = await res.json();
 
     if (!logs || logs.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">Nenhuma consulta no filtro atual.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">Nenhuma consulta no filtro atual.</td></tr>';
       return;
     }
 
@@ -834,20 +834,38 @@ async function loadLiveLogs() {
       const d = new Date(l.timestamp);
       const timeStr = `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`;
       const isBlocked = l.status === 'blocked';
+
+      // Identifica o nome ou descrição do cadastro do dispositivo
+      let deviceName = l.client_name;
+      if (!deviceName || deviceName === l.client_ip) {
+        if (state.clients && state.clients.length > 0) {
+          const matched = state.clients.find(c => 
+            c.ip === l.client_ip || 
+            c.auth_token === l.client_ip || 
+            (c.auth_token && l.client_ip && l.client_ip.startsWith('remote-') && ('remote-' + c.auth_token.slice(0, 10)) === l.client_ip)
+          );
+          if (matched) {
+            deviceName = matched.name || matched.comment || l.client_ip;
+          }
+        }
+      }
+      if (!deviceName) deviceName = l.client_ip;
+
       return `
         <tr>
           <td><span class="text-dim">${timeStr}</span></td>
-          <td><code>${l.client_ip}</code></td>
+          <td title="Identificador: ${escapeHtml(l.client_ip)}">
+            <span style="font-weight: 600; color: var(--text-main);">${escapeHtml(deviceName)}</span>
+          </td>
           <td><span class="text-dim">${l.qtype}</span></td>
-          <td><strong>${escapeHtml(l.domain)}</strong></td>
+          <td title="${escapeHtml(l.domain)}"><strong>${escapeHtml(l.domain)}</strong></td>
           <td><span class="tag-badge ${isBlocked ? 'blocked' : 'allowed'}">${isBlocked ? 'Bloqueado' : 'Permitido'}</span></td>
-          <td><small class="text-dim">${l.rule_matched || l.upstream}</small></td>
-          <td><small class="text-dim">${l.latency_ms.toFixed(1)}ms</small></td>
-          <td>
+          <td title="${escapeHtml(l.rule_matched || l.upstream)}"><small class="text-dim">${escapeHtml(l.rule_matched || l.upstream)}</small></td>
+          <td style="text-align: center;">
             ${isBlocked ? `
-              <button class="btn btn-secondary btn-sm" onclick="quickAllowDomain('${l.domain}')">Liberar</button>
+              <button class="btn btn-secondary btn-sm" onclick="quickAllowDomain('${escapeHtml(l.domain)}')">Liberar</button>
             ` : `
-              <button class="btn btn-danger btn-sm" onclick="quickBlockDomain('${l.domain}')">Bloquear</button>
+              <button class="btn btn-danger btn-sm" onclick="quickBlockDomain('${escapeHtml(l.domain)}')">Bloquear</button>
             `}
           </td>
         </tr>
@@ -1187,7 +1205,7 @@ async function loadClients() {
 
     const tbody = document.getElementById('tbodyClientsList');
     if (!clients || clients.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">Nenhum dispositivo cadastrado ainda.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Nenhum dispositivo cadastrado ainda.</td></tr>';
       return;
     }
 
@@ -1205,27 +1223,20 @@ async function loadClients() {
         </span>
       `;
 
-      const tokenDisplay = isRemote 
-        ? (isRevoked 
-            ? `<span class="tag-badge blocked">Revogado</span>` 
-            : `<code>${c.auth_token ? c.auth_token.slice(0, 8) + '...' : 'Ativo'}</code>`) 
-        : `<span class="text-dim">Rede Local</span>`;
-
       return `
         <tr>
           <td>${typeBadge}</td>
           <td>${groupBadge}</td>
           <td>
-            <strong>${escapeHtml(c.name)}</strong>
+            <strong title="IP / ID: ${escapeHtml(c.ip)}">${escapeHtml(c.name)}</strong>
             ${isRemote ? (c.os_type === 'linux' 
               ? `<span class="badge" style="background:rgba(234,179,8,0.12); color:#facc15; border:1px solid rgba(234,179,8,0.3); font-size:0.72rem; padding:0.15rem 0.45rem; margin-left:0.35rem;">🐧 Linux</span>`
               : `<span class="badge" style="background:rgba(59,130,246,0.12); color:#60a5fa; border:1px solid rgba(59,130,246,0.3); font-size:0.72rem; padding:0.15rem 0.45rem; margin-left:0.35rem;">🪟 Windows</span>`) : ''}
+            ${isRevoked ? `<span class="tag-badge blocked" style="font-size:0.7rem; padding:0.1rem 0.35rem; margin-left:0.35rem;">Revogado</span>` : ''}
           </td>
-          <td><code>${c.ip}</code></td>
-          <td>${tokenDisplay}</td>
-          <td>${escapeHtml(c.comment || '-')}</td>
-          <td>
-            <div style="display: flex; gap: 0.35rem;">
+          <td title="${escapeHtml(c.comment || '')}">${escapeHtml(c.comment || '-')}</td>
+          <td style="text-align: right;">
+            <div style="display: flex; gap: 0.35rem; justify-content: flex-end; align-items: center;">
               ${isRemote && !isRevoked ? (c.os_type === 'linux' ? `
                 <button class="btn btn-sm" style="background: rgba(234, 179, 8, 0.15); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.3); font-weight: 600;" onclick="copyLinuxInstallCommand('${c.auth_token}')" title="Copiar comando Linux Bash para instalar neste PC">
                   🐧 Instalar

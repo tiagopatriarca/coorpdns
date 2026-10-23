@@ -18,6 +18,7 @@ import (
 type QueryLogRecord struct {
 	Timestamp   time.Time `json:"timestamp"`
 	ClientIP    string    `json:"client_ip"`
+	ClientName  string    `json:"client_name"`
 	Domain      string    `json:"domain"`
 	QType       string    `json:"qtype"`
 	Status      string    `json:"status"` // "allowed", "blocked"
@@ -678,29 +679,34 @@ func (d *DB) GetRecentLogsFiltered(limit int, filterClient, filterDomain, filter
 		limit = 100
 	}
 
-	query := "SELECT timestamp, client_ip, domain, qtype, status, rule_matched, upstream, latency_ms FROM dns_queries WHERE 1=1"
+	query := `
+		SELECT q.timestamp, q.client_ip, q.domain, q.qtype, q.status, q.rule_matched, q.upstream, q.latency_ms,
+		       COALESCE(NULLIF(c.name, ''), NULLIF(c.comment, ''), q.client_ip) AS client_name
+		FROM dns_queries q
+		LEFT JOIN clients c ON (q.client_ip = c.ip OR q.client_ip = c.auth_token OR q.client_ip = ('remote-' || substr(c.auth_token, 1, 10)))
+		WHERE 1=1`
 	var args []interface{}
 
 	if allowedGroupIDs != nil {
-		cond, condArgs := buildClientInGroupSubquery("client_ip", allowedGroupIDs)
+		cond, condArgs := buildClientInGroupSubquery("q.client_ip", allowedGroupIDs)
 		query += " AND " + cond
 		args = append(args, condArgs...)
 	}
 
 	if filterClient != "" {
-		query += " AND client_ip = ?"
+		query += " AND q.client_ip = ?"
 		args = append(args, filterClient)
 	}
 	if filterDomain != "" {
-		query += " AND domain LIKE ?"
+		query += " AND q.domain LIKE ?"
 		args = append(args, "%"+filterDomain+"%")
 	}
 	if filterStatus != "" && filterStatus != "all" {
-		query += " AND status = ?"
+		query += " AND q.status = ?"
 		args = append(args, filterStatus)
 	}
 
-	query += " ORDER BY timestamp DESC LIMIT ?"
+	query += " ORDER BY q.timestamp DESC LIMIT ?"
 	args = append(args, limit)
 
 	rows, err := d.db.Query(query, args...)
@@ -712,12 +718,16 @@ func (d *DB) GetRecentLogsFiltered(limit int, filterClient, filterDomain, filter
 	var logs []QueryLogRecord
 	for rows.Next() {
 		var r QueryLogRecord
-		var rule, up sql.NullString
-		if err := rows.Scan(&r.Timestamp, &r.ClientIP, &r.Domain, &r.QType, &r.Status, &rule, &up, &r.LatencyMs); err != nil {
+		var rule, up, clName sql.NullString
+		if err := rows.Scan(&r.Timestamp, &r.ClientIP, &r.Domain, &r.QType, &r.Status, &rule, &up, &r.LatencyMs, &clName); err != nil {
 			continue
 		}
 		r.RuleMatched = rule.String
 		r.Upstream = up.String
+		r.ClientName = clName.String
+		if r.ClientName == "" {
+			r.ClientName = r.ClientIP
+		}
 		logs = append(logs, r)
 	}
 	return logs, nil

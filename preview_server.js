@@ -1002,11 +1002,11 @@ let currentSessionUser = null;
 
   if (pathname === '/api/v1/logs') {
     const logs = [
-      { timestamp: new Date().toISOString(), client_ip: '192.168.1.45', domain: 'samsungads.com', qtype: 'A', status: 'blocked', rule_matched: '||samsungads.com^', upstream: 'sinkhole', latency_ms: 0.2 },
-      { timestamp: new Date(Date.now() - 2000).toISOString(), client_ip: '192.168.1.72', domain: 'google.com', qtype: 'A', status: 'allowed', rule_matched: '', upstream: 'cache', latency_ms: 0.1 },
-      { timestamp: new Date(Date.now() - 4000).toISOString(), client_ip: '192.168.1.88', domain: 'github.com', qtype: 'AAAA', status: 'allowed', rule_matched: '', upstream: 'https://cloudflare-dns.com/dns-query', latency_ms: 12.4 },
-      { timestamp: new Date(Date.now() - 7000).toISOString(), client_ip: '192.168.1.72', domain: 'googleads.g.doubleclick.net', qtype: 'A', status: 'blocked', rule_matched: '||doubleclick.net^', upstream: 'sinkhole', latency_ms: 0.3 },
-      { timestamp: new Date(Date.now() - 11000).toISOString(), client_ip: '192.168.1.104', domain: 'netflix.com', qtype: 'HTTPS', status: 'allowed', rule_matched: '', upstream: 'https://dns.quad9.net/dns-query', latency_ms: 18.2 },
+      { timestamp: new Date().toISOString(), client_ip: '192.168.1.45', client_name: 'Smart TV Samsung', domain: 'samsungads.com', qtype: 'A', status: 'blocked', rule_matched: '||samsungads.com^', upstream: 'sinkhole', latency_ms: 0.2 },
+      { timestamp: new Date(Date.now() - 2000).toISOString(), client_ip: '192.168.1.72', client_name: 'Notebook Diretor', domain: 'google.com', qtype: 'A', status: 'allowed', rule_matched: '', upstream: 'cache', latency_ms: 0.1 },
+      { timestamp: new Date(Date.now() - 4000).toISOString(), client_ip: '192.168.1.88', client_name: 'Workstation TI', domain: 'github.com', qtype: 'AAAA', status: 'allowed', rule_matched: '', upstream: 'https://cloudflare-dns.com/dns-query', latency_ms: 12.4 },
+      { timestamp: new Date(Date.now() - 7000).toISOString(), client_ip: '192.168.1.72', client_name: 'Notebook Diretor', domain: 'googleads.g.doubleclick.net', qtype: 'A', status: 'blocked', rule_matched: '||doubleclick.net^', upstream: 'sinkhole', latency_ms: 0.3 },
+      { timestamp: new Date(Date.now() - 11000).toISOString(), client_ip: '192.168.1.104', client_name: 'PC Recepção', domain: 'netflix.com', qtype: 'HTTPS', status: 'allowed', rule_matched: '', upstream: 'https://dns.quad9.net/dns-query', latency_ms: 18.2 },
     ];
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify(logs));
