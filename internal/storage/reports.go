@@ -676,7 +676,7 @@ func (d *DB) GetGroupReport(groupID int64, days int, maxDomainsPerDevice int) (*
 	}
 
 	// 4. Consolida Top Categorias para os gráficos do relatório
-	var catStats []GroupCategoryStat
+	catStats := make([]GroupCategoryStat, 0)
 	for _, cs := range groupCatMap {
 		if result.TotalQueries > 0 {
 			cs.Percentage = (float64(cs.TotalQueries) / float64(result.TotalQueries)) * 100.0
@@ -692,7 +692,7 @@ func (d *DB) GetGroupReport(groupID int64, days int, maxDomainsPerDevice int) (*
 	result.CategoriesStats = catStats
 
 	// 5. Consolida Top Aplicativos para os gráficos do relatório
-	var appStats []GroupApplicationStat
+	appStats := make([]GroupApplicationStat, 0)
 	for _, as := range groupAppMap {
 		if result.TotalQueries > 0 {
 			as.Percentage = (float64(as.TotalQueries) / float64(result.TotalQueries)) * 100.0
