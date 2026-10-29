@@ -123,8 +123,10 @@ function switchTab(tabId) {
   if (tabId === 'policies') {
     loadPoliciesSection();
   } else if (tabId === 'reports') {
+    populateReportExportGroupSelect();
     loadReportsData();
   } else if (tabId === 'logs') {
+    populateLogClientFilter();
     loadLiveLogs();
   } else if (tabId === 'clients') {
     loadClients();
@@ -461,6 +463,23 @@ function setupReportsControls() {
     });
   }
 
+  // Controles de Exportação em PDF
+  const btnPDF = document.getElementById('btnExportPDF');
+  if (btnPDF) {
+    btnPDF.addEventListener('click', () => exportGroupReportPDF());
+  }
+  const btnCurrentGroupPDF = document.getElementById('btnDownloadCurrentGroupPDF');
+  if (btnCurrentGroupPDF) {
+    btnCurrentGroupPDF.addEventListener('click', () => exportGroupReportPDF(state.selectedGroupForReport));
+  }
+  const selReportExportGroup = document.getElementById('selectReportExportGroup');
+  if (selReportExportGroup) {
+    selReportExportGroup.addEventListener('change', () => {
+      const gid = parseInt(selReportExportGroup.value, 10);
+      if (gid) state.selectedGroupForReport = gid;
+    });
+  }
+
   // Botão Exportar CSV
   document.getElementById('btnExportCSV').addEventListener('click', () => {
     let type = 'domains';
@@ -492,6 +511,44 @@ function loadReportsData() {
   } else if (state.currentReportSubtab === 'group-report') {
     loadGroupReport();
   }
+}
+
+
+function populateReportExportGroupSelect() {
+  const sel = document.getElementById('selectReportExportGroup');
+  if (!sel || !state.groups) return;
+  const currentVal = sel.value;
+  sel.innerHTML = state.groups.map(g => `
+    <option value="${g.id}" ${g.id == currentVal ? 'selected' : ''}>
+      Grupo: ${escapeHtml(g.name)}
+    </option>
+  `).join('');
+}
+
+function exportGroupReportPDF(targetGroupId) {
+  let groupId = targetGroupId;
+  if (!groupId) {
+    const sel = document.getElementById('selectReportExportGroup');
+    if (sel && sel.value) groupId = parseInt(sel.value, 10);
+  }
+  if (!groupId) {
+    const selG = document.getElementById('selectReportGroup');
+    if (selG && selG.value) groupId = parseInt(selG.value, 10);
+  }
+  if (!groupId && state.selectedGroupForReport) {
+    groupId = state.selectedGroupForReport;
+  }
+  if (!groupId) {
+    if (state.groups && state.groups.length > 0) {
+      groupId = state.groups[0].id;
+    } else {
+      groupId = 1;
+    }
+  }
+
+  const days = state.reportDays || 30;
+  showToast('📄 Gerando relatório estruturado em PDF...');
+  window.location.href = `${API_BASE}/api/v1/reports/export-pdf?group_id=${groupId}&days=${days}`;
 }
 
 // 4. Relatório por Grupo de Dispositivos (Lista dispositivos do grupo e sites acessados por cada um)
@@ -854,16 +911,37 @@ function inspectClientMatrix(clientIP) {
 function setupLiveLogControls() {
   document.getElementById('btnRefreshLogs').addEventListener('click', loadLiveLogs);
   document.getElementById('selectLogStatus').addEventListener('change', loadLiveLogs);
+  const selClient = document.getElementById('selectLogClient');
+  if (selClient) {
+    selClient.addEventListener('change', loadLiveLogs);
+  }
   document.getElementById('inputSearchDomain').addEventListener('input', debounce(loadLiveLogs, 300));
+}
+
+function populateLogClientFilter() {
+  const sel = document.getElementById('selectLogClient');
+  if (!sel || !state.clients) return;
+  const currentVal = sel.value;
+  sel.innerHTML = '<option value="">Todos os Dispositivos</option>' + state.clients.map(c => `
+    <option value="${escapeHtml(c.ip)}" ${c.ip === currentVal ? 'selected' : ''}>
+      ${escapeHtml(c.name)} (${c.is_remote ? 'Nuvem' : escapeHtml(c.ip)})
+    </option>
+  `).join('');
 }
 
 async function loadLiveLogs() {
   const tbody = document.getElementById('tbodyLiveLogs');
   const search = document.getElementById('inputSearchDomain').value.trim();
   const status = document.getElementById('selectLogStatus').value;
+  const clientSel = document.getElementById('selectLogClient');
+  const client = clientSel ? clientSel.value.trim() : '';
 
   try {
-    const res = await fetch(`${API_BASE}/api/v1/logs?limit=50&domain=${encodeURIComponent(search)}&status=${status}`);
+    let url = `${API_BASE}/api/v1/logs?limit=50&domain=${encodeURIComponent(search)}&status=${status}`;
+    if (client) {
+      url += `&client=${encodeURIComponent(client)}`;
+    }
+    const res = await fetch(url);
     if (!res.ok) {
       if (res.status === 401) {
         showLoginScreen('Sua sessão expirou por inatividade. Faça login novamente.');
@@ -1249,6 +1327,7 @@ async function loadClients() {
     if (!res.ok) return;
     const clients = await res.json();
     state.clients = clients || [];
+    populateLogClientFilter();
 
     const tbody = document.getElementById('tbodyClientsList');
     if (!clients || clients.length === 0) {
@@ -1492,6 +1571,15 @@ function sanitizeIconClass(icon, fallback = 'fas fa-shield-alt') {
 
 function setupDelegatedActions() {
   document.addEventListener('click', (e) => {
+    const chip = e.target.closest('.btn-example-domain');
+    if (chip && chip.dataset.domain) {
+      const input = document.getElementById('inputGroupCustomDomain');
+      if (input) {
+        input.value = chip.dataset.domain;
+        input.focus();
+      }
+    }
+
     const el = e.target.closest('[data-action]');
     if (!el) return;
     const action = el.dataset.action;
@@ -1543,6 +1631,9 @@ function setupDelegatedActions() {
         break;
       case 'toggle-policy-category':
         window.togglePolicyCategoryAction(el.dataset.catId);
+        break;
+      case 'delete-group-domain':
+        deletePolicyGroupDomain(parseInt(el.dataset.domainId, 10));
         break;
     }
   });
@@ -2934,6 +3025,15 @@ async function loadDashboardGroupsSummary() {
     if (!res.ok) return;
     const groups = await res.json();
 
+    if (!groups || groups.length === 0) {
+      container.innerHTML = `
+        <div style="grid-column: 1 / -1; padding: 2rem; text-align: center; color: var(--text-dim); background: rgba(255,255,255,0.02); border-radius: var(--radius-md); border: 1px dashed var(--border-subtle);">
+          <p style="margin: 0; font-size: 0.9rem;">Nenhum grupo com dispositivos cadastrados no momento.</p>
+        </div>
+      `;
+      return;
+    }
+
     container.innerHTML = groups.map(g => `
       <div class="card" style="padding: 1rem; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02);">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
@@ -3049,12 +3149,67 @@ function setupPoliciesControls() {
   const btnSaveSched = document.getElementById('btnSaveScheduleOnly');
   if (btnSaveSched) btnSaveSched.addEventListener('click', () => savePolicySchedule(true));
 
+  // Botões de Bloquear/Liberar Todas Categorias
+  const btnBlockAllCats = document.getElementById('btnPolicyCatBlockAll');
+  if (btnBlockAllCats) {
+    btnBlockAllCats.addEventListener('click', async () => {
+      const groupId = state.currentPolicyGroup;
+      if (!state.groupCategoryRules[groupId]) state.groupCategoryRules[groupId] = {};
+      state.availableCategories.forEach(cat => {
+        state.groupCategoryRules[groupId][cat.id] = 'block';
+      });
+      await savePolicyCategories();
+      loadPolicyCategories(groupId);
+      loadPolicyGroupAudit(groupId);
+      showToast('Todas as categorias foram bloqueadas para este grupo.');
+    });
+  }
+
+  const btnAllowAllCats = document.getElementById('btnPolicyCatAllowAll');
+  if (btnAllowAllCats) {
+    btnAllowAllCats.addEventListener('click', async () => {
+      const groupId = state.currentPolicyGroup;
+      state.groupCategoryRules[groupId] = {};
+      await savePolicyCategories();
+      loadPolicyCategories(groupId);
+      loadPolicyGroupAudit(groupId);
+      showToast('Todas as categorias foram liberadas para este grupo.');
+    });
+  }
+
+  // Domínios Personalizados da Política
+  const btnAddBlockDom = document.getElementById('btnGroupAddBlockDomain');
+  if (btnAddBlockDom) {
+    btnAddBlockDom.addEventListener('click', () => addPolicyGroupDomain('block'));
+  }
+  const btnAddAllowDom = document.getElementById('btnGroupAddAllowDomain');
+  if (btnAddAllowDom) {
+    btnAddAllowDom.addEventListener('click', () => addPolicyGroupDomain('allow'));
+  }
+  const inputDom = document.getElementById('inputGroupCustomDomain');
+  if (inputDom) {
+    inputDom.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        addPolicyGroupDomain('block');
+      }
+    });
+  }
+
+  // Auditoria da Política
+  const btnRefreshAudit = document.getElementById('btnRefreshPolicyAudit');
+  if (btnRefreshAudit) {
+    btnRefreshAudit.addEventListener('click', () => loadPolicyGroupAudit(state.currentPolicyGroup));
+  }
+
   // Salvar Geral
   const btnSaveAll = document.getElementById('btnSaveAllPolicyChanges');
   if (btnSaveAll) {
     btnSaveAll.addEventListener('click', async () => {
       await savePolicyApplications();
+      await savePolicyCategories();
       await savePolicySchedule();
+      loadPolicyGroupAudit(state.currentPolicyGroup);
       showToast('✨ Todas as regras da política foram salvas com sucesso!');
     });
   }
@@ -3071,17 +3226,24 @@ function switchPolicySubtab(subtabId) {
 
   if (subtabId === 'schedule') {
     renderWeeklyScheduleGrid();
+  } else if (subtabId === 'domains') {
+    loadPolicyGroupDomains(state.currentPolicyGroup);
+  } else if (subtabId === 'audit') {
+    loadPolicyGroupAudit(state.currentPolicyGroup);
   }
 }
 
 async function loadPoliciesSection() {
   await loadGroups();
   populatePolicyGroupSelect();
+  populateReportExportGroupSelect();
   updatePolicyHeaderTitle();
   await loadPolicyApplications(state.currentPolicyGroup);
   await loadPolicySchedule(state.currentPolicyGroup);
   loadPolicyCategories(state.currentPolicyGroup);
+  loadPolicyGroupDomains(state.currentPolicyGroup);
   loadPolicyGroupDevices(state.currentPolicyGroup);
+  loadPolicyGroupAudit(state.currentPolicyGroup);
 }
 
 function populatePolicyGroupSelect() {
@@ -3232,21 +3394,31 @@ function renderPolicyCategoryCards() {
 }
 
 window.toggleAppRule = async function(appId, isBlocked) {
-  state.groupAppRules[appId] = isBlocked ? 'block' : 'allow';
+  if (isBlocked) {
+    state.groupAppRules[appId] = 'block';
+  } else {
+    delete state.groupAppRules[appId];
+  }
   updateBlockedCountBadge();
   await savePolicyApplications();
   renderPolicyCategoryCards();
+  loadPolicyGroupAudit(state.currentPolicyGroup);
   showToast(isBlocked ? `🛑 Aplicação bloqueada para este grupo.` : `✅ Aplicação liberada.`);
 };
 
 window.toggleCategoryMasterRule = async function(catKey, isBlocked) {
   const apps = state.catalogApplications.filter(a => a.category === catKey);
   apps.forEach(a => {
-    state.groupAppRules[a.id] = isBlocked ? 'block' : 'allow';
+    if (isBlocked) {
+      state.groupAppRules[a.id] = 'block';
+    } else {
+      delete state.groupAppRules[a.id];
+    }
   });
   updateBlockedCountBadge();
   await savePolicyApplications();
   renderPolicyCategoryCards();
+  loadPolicyGroupAudit(state.currentPolicyGroup);
   showToast(isBlocked ? `🛑 Categoria ${catKey.toUpperCase()} inteira bloqueada!` : `✅ Categoria ${catKey.toUpperCase()} liberada.`);
 };
 
@@ -3501,17 +3673,172 @@ window.togglePolicyCategoryAction = async function(catId) {
   const groupId = state.currentPolicyGroup;
   if (!state.groupCategoryRules[groupId]) state.groupCategoryRules[groupId] = {};
   const current = state.groupCategoryRules[groupId][catId] || 'allow';
-  state.groupCategoryRules[groupId][catId] = current === 'block' ? 'allow' : 'block';
+  if (current === 'block') {
+    delete state.groupCategoryRules[groupId][catId];
+  } else {
+    state.groupCategoryRules[groupId][catId] = 'block';
+  }
 
-  await fetch(`${API_BASE}/api/v1/groups/categories`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ group_id: groupId, rules: state.groupCategoryRules[groupId] })
-  });
-
+  await savePolicyCategories();
   loadPolicyCategories(groupId);
+  loadPolicyGroupAudit(groupId);
   showToast('Políticas de categoria atualizadas!');
 };
+
+async function savePolicyCategories() {
+  try {
+    const groupId = state.currentPolicyGroup;
+    await fetch(`${API_BASE}/api/v1/groups/categories`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group_id: groupId, rules: state.groupCategoryRules[groupId] || {} })
+    });
+  } catch (err) {
+    console.warn('Erro ao salvar categorias do grupo:', err);
+  }
+}
+
+// Domínios Customizados por Grupo
+async function loadPolicyGroupDomains(groupId) {
+  const tbodyBlocked = document.getElementById('tbodyGroupBlockedDomains');
+  const tbodyAllowed = document.getElementById('tbodyGroupAllowedDomains');
+  if (!tbodyBlocked || !tbodyAllowed) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/groups/domains?group_id=${groupId}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const domains = data.domains || [];
+
+    const blockedList = domains.filter(d => d.action === 'block');
+    const allowedList = domains.filter(d => d.action === 'allow');
+
+    if (blockedList.length === 0) {
+      tbodyBlocked.innerHTML = '<tr><td colspan="3" class="text-center text-muted" style="padding: 1.25rem;">Nenhum domínio bloqueado neste grupo.</td></tr>';
+    } else {
+      tbodyBlocked.innerHTML = blockedList.map(d => `
+        <tr>
+          <td><strong>${escapeHtml(d.domain)}</strong></td>
+          <td><span class="tag-badge blocked">Bloqueado</span></td>
+          <td style="text-align: right;">
+            <button class="btn btn-secondary btn-sm" data-action="delete-group-domain" data-domain-id="${d.id}">Remover</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    if (allowedList.length === 0) {
+      tbodyAllowed.innerHTML = '<tr><td colspan="3" class="text-center text-muted" style="padding: 1.25rem;">Nenhum domínio liberado como exceção.</td></tr>';
+    } else {
+      tbodyAllowed.innerHTML = allowedList.map(d => `
+        <tr>
+          <td><strong>${escapeHtml(d.domain)}</strong></td>
+          <td><span class="tag-badge allowed">Liberado</span></td>
+          <td style="text-align: right;">
+            <button class="btn btn-secondary btn-sm" data-action="delete-group-domain" data-domain-id="${d.id}">Remover</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+  } catch (err) {
+    console.warn('Erro ao carregar domínios do grupo:', err);
+  }
+}
+
+async function addPolicyGroupDomain(action) {
+  const input = document.getElementById('inputGroupCustomDomain');
+  if (!input) return;
+  const domain = input.value.trim();
+  if (!domain) {
+    showToast('Digite um domínio para cadastrar.');
+    input.focus();
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/groups/domains`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        group_id: state.currentPolicyGroup,
+        domain: domain,
+        action: action
+      })
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      showToast(`Erro: ${errText || 'Falha ao cadastrar domínio'}`);
+      return;
+    }
+    input.value = '';
+    loadPolicyGroupDomains(state.currentPolicyGroup);
+    loadPolicyGroupAudit(state.currentPolicyGroup);
+    showToast(action === 'block' ? `🚫 Domínio ${domain} bloqueado com sucesso!` : `✅ Domínio ${domain} liberado como exceção!`);
+  } catch (err) {
+    showToast('Erro de comunicação com o servidor');
+  }
+}
+
+async function deletePolicyGroupDomain(ruleId) {
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/groups/domains?group_id=${state.currentPolicyGroup}&id=${ruleId}`, {
+      method: 'DELETE'
+    });
+    if (res.ok) {
+      loadPolicyGroupDomains(state.currentPolicyGroup);
+      loadPolicyGroupAudit(state.currentPolicyGroup);
+      showToast('Regra de domínio removida com sucesso!');
+    }
+  } catch (err) {
+    showToast('Erro ao remover regra');
+  }
+}
+
+// Histórico de Auditoria do Grupo (Últimos 10 Registros)
+async function loadPolicyGroupAudit(groupId) {
+  const container = document.getElementById('containerPolicyAuditLogs');
+  if (!container) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/groups/audit?group_id=${groupId}&limit=10`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const logs = data.logs || [];
+
+    if (logs.length === 0) {
+      container.innerHTML = '<div class="text-center text-muted" style="padding: 2rem;">Nenhum registro de auditoria para esta política ainda.</div>';
+      return;
+    }
+
+    container.innerHTML = logs.map(l => {
+      const d = new Date(l.created_at);
+      const dateStr = d.toLocaleDateString('pt-BR');
+      const timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+      
+      let borderCol = 'var(--accent-emerald)';
+      if (l.action_type === 'categories') borderCol = '#f59e0b';
+      else if (l.action_type === 'applications') borderCol = '#38bdf8';
+      else if (l.action_type === 'domain_rule' || l.action_type === 'domain_deleted') borderCol = '#ef4444';
+      else if (l.action_type === 'schedule') borderCol = '#a855f7';
+
+      const actor = l.full_name ? `${escapeHtml(l.full_name)} (${escapeHtml(l.username)})` : escapeHtml(l.username);
+
+      return `
+        <div class="log-entry" style="padding: 0.85rem 1rem; border-left: 3px solid ${borderCol}; background: rgba(255,255,255,0.02); margin-bottom: 0.65rem; border-radius: 4px;">
+          <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.25rem;">
+            <span><i class="fas fa-user-shield" style="margin-right: 0.35rem;"></i>${actor}</span>
+            <span>${dateStr} às ${timeStr}</span>
+          </div>
+          <div style="font-size: 0.88rem; color: var(--text-main); font-weight: 500;">
+            ${escapeHtml(l.summary)}
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    console.warn('Erro ao carregar auditoria do grupo:', err);
+  }
+}
 
 function loadPolicyGroupDevices(groupId) {
   const tbody = document.getElementById('tbodyPolicyGroupClients');

@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-  <link rel="stylesheet" href="css/style.css?v=20261022_9">
+  <link rel="stylesheet" href="css/style.css?v=20261029b">
 </head>
 <body>
   <!-- TELA DE LOGIN / AUTENTICAÇÃO -->
@@ -462,7 +462,7 @@
           <div class="apps-catalog-toolbar">
             <div class="apps-toolbar-left">
               <h4 style="font-size: 1.05rem; margin-bottom: 0.25rem;">Aplicações</h4>
-              <p>Escolha as aplicações e categorias que você quer bloquear para este grupo. Tudo que ficar desligado continua liberado.</p>
+              <p>Escolha as aplicações que deseja bloquear para este grupo. O que estiver marcado para bloquear — seja aqui ou na aba de Categorias — será bloqueado de forma somativa para o grupo.</p>
             </div>
             <div class="apps-toolbar-right">
               <label class="filter-blocked-toggle-label">
@@ -594,12 +594,82 @@
               </div>
             </div>
             <div style="padding: 1.25rem;">
-              <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
-                <input type="text" id="inputGroupCustomDomain" class="form-input" placeholder="ex: siteespecifico.com.br" style="flex: 1;">
-                <button id="btnGroupAddBlockDomain" class="btn btn-danger btn-sm">Bloquear Domínio</button>
-                <button id="btnGroupAddAllowDomain" class="btn btn-success btn-sm">Permitir Domínio</button>
+              <!-- Caixa de Sugestão de Cadastro -->
+              <div class="domain-suggestion-box" style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 8px; padding: 1rem; margin-bottom: 1.25rem;">
+                <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
+                  <i class="fas fa-lightbulb text-warning" style="font-size: 1.25rem; margin-top: 0.15rem; color: #f59e0b;"></i>
+                  <div style="flex: 1;">
+                    <strong style="color: var(--text-main); font-size: 0.92rem;">💡 Como cadastrar domínios corretamente:</strong>
+                    <p style="margin: 0.35rem 0 0.65rem 0; font-size: 0.85rem; color: var(--text-dim); line-height: 1.45;">
+                      Digite apenas o nome do domínio, sem protocolo (<code>http://</code> ou <code>https://</code>) e sem caminhos ou barras no final. 
+                      Ao cadastrar <code>exemplo.com.br</code> ou <code>tiktok.com</code>, todos os seus subdomínios (como <code>www.exemplo.com.br</code>, <code>api.exemplo.com.br</code>) serão automaticamente bloqueados ou liberados.
+                    </p>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+                      <span style="font-size: 0.8rem; color: var(--text-dim); font-weight: 500;">Sugestões rápidas (clique para preencher):</span>
+                      <button type="button" class="badge-chip btn-example-domain" data-domain="tiktok.com">tiktok.com</button>
+                      <button type="button" class="badge-chip btn-example-domain" data-domain="bet365.com">bet365.com</button>
+                      <button type="button" class="badge-chip btn-example-domain" data-domain="intranet.empresa.local">intranet.empresa.local</button>
+                      <button type="button" class="badge-chip btn-example-domain" data-domain="ads.servidor.com">ads.servidor.com</button>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <p class="text-muted" style="font-size: 0.85rem;">As regras desta política aplicam-se com prioridade estrita aos dispositivos membros deste grupo.</p>
+
+              <!-- Formulário de Inclusão de Domínio -->
+              <div style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
+                <input type="text" id="inputGroupCustomDomain" class="form-input" placeholder="ex: tiktok.com ou intranet.empresa.local" style="flex: 1; min-width: 250px;">
+                <button id="btnGroupAddBlockDomain" class="btn btn-danger btn-sm">🚫 Bloquear Domínio</button>
+                <button id="btnGroupAddAllowDomain" class="btn btn-success btn-sm">✅ Liberar Domínio (Exceção)</button>
+              </div>
+
+              <!-- Listas de Domínios Cadastrados: Bloqueados vs Liberados -->
+              <div class="domain-rules-container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem;">
+                <!-- Coluna: Bloqueados no Grupo -->
+                <div class="card" style="margin: 0; background: rgba(0,0,0,0.15); border: 1px solid rgba(239, 68, 68, 0.2);">
+                  <div class="card-header" style="padding: 0.75rem 1rem;">
+                    <h4 style="font-size: 0.92rem; color: #f87171; display: flex; align-items: center; gap: 0.5rem; margin: 0;">
+                      <i class="fas fa-ban"></i> Domínios Bloqueados neste Grupo
+                    </h4>
+                  </div>
+                  <div class="table-container" style="max-height: 320px; overflow-y: auto;">
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th>Domínio</th>
+                          <th>Status</th>
+                          <th style="width: 80px; text-align: right;">Ação</th>
+                        </tr>
+                      </thead>
+                      <tbody id="tbodyGroupBlockedDomains">
+                        <tr><td colspan="3" class="text-center text-muted" style="padding: 1.5rem;">Carregando...</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <!-- Coluna: Liberados no Grupo (Exceções) -->
+                <div class="card" style="margin: 0; background: rgba(0,0,0,0.15); border: 1px solid rgba(16, 185, 129, 0.2);">
+                  <div class="card-header" style="padding: 0.75rem 1rem;">
+                    <h4 style="font-size: 0.92rem; color: #34d399; display: flex; align-items: center; gap: 0.5rem; margin: 0;">
+                      <i class="fas fa-check-circle"></i> Domínios Liberados (Exceções)
+                    </h4>
+                  </div>
+                  <div class="table-container" style="max-height: 320px; overflow-y: auto;">
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th>Domínio</th>
+                          <th>Status</th>
+                          <th style="width: 80px; text-align: right;">Ação</th>
+                        </tr>
+                      </thead>
+                      <tbody id="tbodyGroupAllowedDomains">
+                        <tr><td colspan="3" class="text-center text-muted" style="padding: 1.5rem;">Carregando...</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -657,31 +727,15 @@
         <!-- CONTEÚDO SUB-ABA 6: AUDITORIA -->
         <div id="subtab-policy-audit" class="policy-tab-pane">
           <div class="card">
-            <div class="card-header">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
               <div>
                 <h3>Histórico de Auditoria da Política</h3>
-                <p class="card-desc">Registro de alterações de regras, aplicações e horários realizadas pelos administradores</p>
+                <p class="card-desc">Últimos 10 registros de alterações de regras, domínios, aplicações e horários deste grupo</p>
               </div>
+              <button id="btnRefreshPolicyAudit" class="btn btn-secondary btn-sm"><i class="fas fa-sync-alt"></i> Atualizar</button>
             </div>
-            <div style="padding: 1.25rem;">
-              <div class="log-entry" style="padding: 0.75rem; border-left: 3px solid var(--accent-emerald); background: rgba(255,255,255,0.02); margin-bottom: 0.5rem; border-radius: 4px;">
-                <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-dim);">
-                  <span>Administrador Principal (admin)</span>
-                  <span>Hoje às 16:10</span>
-                </div>
-                <div style="font-size: 0.85rem; color: var(--text-main); margin-top: 0.25rem;">
-                  Atualização de agendamento: Horário comercial habilitado (Segunda a Sexta, 08:00 - 18:00).
-                </div>
-              </div>
-              <div class="log-entry" style="padding: 0.75rem; border-left: 3px solid #f97316; background: rgba(255,255,255,0.02); margin-bottom: 0.5rem; border-radius: 4px;">
-                <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-dim);">
-                  <span>Administrador Principal (admin)</span>
-                  <span>Hoje às 15:30</span>
-                </div>
-                <div style="font-size: 0.85rem; color: var(--text-main); margin-top: 0.25rem;">
-                  Aplicações da categoria <strong>Betting</strong> (Bet365, Betano, Betfair, Blaze) configuradas como bloqueadas.
-                </div>
-              </div>
+            <div style="padding: 1.25rem;" id="containerPolicyAuditLogs">
+              <div class="text-center text-muted" style="padding: 2rem;">Carregando histórico de auditoria...</div>
             </div>
           </div>
         </div>
@@ -702,7 +756,14 @@
             </div>
           </div>
 
-          <div class="export-actions">
+          <div class="export-actions" style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <select id="selectReportExportGroup" class="form-select form-select-sm" style="max-width: 190px;" title="Selecione o grupo para gerar o relatório em PDF">
+              <!-- Preenchido via JS com os grupos -->
+            </select>
+            <button id="btnExportPDF" class="btn btn-secondary btn-sm" title="Exportar Relatório em PDF Estruturado por Grupo e Máquinas">
+              <i class="fas fa-file-pdf" style="color: #ef4444; margin-right: 0.25rem;"></i>
+              Exportar PDF
+            </button>
             <button id="btnExportCSV" class="btn btn-secondary btn-sm">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               Exportar CSV
@@ -839,11 +900,14 @@
                 <h3>Relatório por Grupo de Dispositivos</h3>
                 <p class="card-desc">Dispositivos do grupo selecionado e todos os sites que cada um acessou no período</p>
               </div>
-              <div class="client-picker-wrapper">
+              <div class="client-picker-wrapper" style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
                 <label for="selectReportGroup">Selecione o Grupo:</label>
-                <select id="selectReportGroup" class="form-select">
+                <select id="selectReportGroup" class="form-select" style="min-width: 200px;">
                   <option value="">Carregando grupos...</option>
                 </select>
+                <button id="btnDownloadCurrentGroupPDF" class="btn btn-secondary btn-sm" title="Baixar PDF estruturado deste grupo">
+                  <i class="fas fa-file-pdf" style="color: #ef4444; margin-right: 0.25rem;"></i> Baixar PDF
+                </button>
               </div>
             </div>
 
@@ -867,9 +931,12 @@
               <p class="card-desc">Transparência em tempo real de cada resolução de nome solicitada na sua rede</p>
             </div>
             <div class="log-filters">
+              <select id="selectLogClient" class="form-select" style="max-width: 200px;">
+                <option value="">Todos os Dispositivos</option>
+              </select>
               <input type="text" id="inputSearchDomain" class="form-input" placeholder="Filtrar por domínio...">
               <select id="selectLogStatus" class="form-select">
-                <option value="all">Todos</option>
+                <option value="all">Todos os Status</option>
                 <option value="allowed">Permitidos</option>
                 <option value="blocked">Bloqueados</option>
               </select>
@@ -1598,6 +1665,6 @@
     </div>
   </div>
 
-  <script src="js/app.js?v=20261023_2"></script>
+  <script src="js/app.js?v=20261029b"></script>
 </body>
 </html>

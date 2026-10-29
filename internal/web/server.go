@@ -174,6 +174,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/v1/reports/group", s.handleReportGroup)
 	mux.HandleFunc("/api/v1/reports/timeline", s.handleReportTimeline)
 	mux.HandleFunc("/api/v1/reports/export-csv", s.handleExportCSV)
+	mux.HandleFunc("/api/v1/reports/export-pdf", s.handleExportPDF)
 
 	// Gerenciamento de Clientes, Grupos e Regras
 	mux.HandleFunc("/api/v1/clients", s.handleClients)
@@ -183,6 +184,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/v1/groups", s.handleGroups)
 	mux.HandleFunc("/api/v1/groups/categories", s.handleGroupCategories)
 	mux.HandleFunc("/api/v1/groups/applications", s.handleGroupApplications)
+	mux.HandleFunc("/api/v1/groups/domains", s.handleGroupDomains)
+	mux.HandleFunc("/api/v1/groups/audit", s.handleGroupAudit)
 	mux.HandleFunc("/api/v1/groups/schedule", s.handleGroupSchedule)
 	mux.HandleFunc("/api/v1/applications", s.handleApplications)
 	mux.HandleFunc("/api/v1/categories", s.handleCategories)
@@ -409,6 +412,11 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	domain := r.URL.Query().Get("domain")
 	status := r.URL.Query().Get("status")
 
+	if client != "" && !s.isClientAuthorizedForUser(u, client) {
+		http.Error(w, "Acesso negado a este dispositivo", http.StatusForbidden)
+		return
+	}
+
 	var allowedGroups []int64
 	if u.Role != "admin" {
 		allowedGroups = u.AllowedGroups
@@ -633,6 +641,56 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handleExportPDF(w http.ResponseWriter, r *http.Request) {
+	u := s.requireAuth(w, r)
+	if u == nil {
+		return
+	}
+
+	groupID, _ := strconv.ParseInt(r.URL.Query().Get("group_id"), 10, 64)
+	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
+	if days <= 0 || days > 180 {
+		days = 7
+	}
+	if groupID <= 0 {
+		if u.Role != "admin" && len(u.AllowedGroups) > 0 {
+			groupID = u.AllowedGroups[0]
+		} else {
+			groupID = 1
+		}
+	}
+
+	if u.Role != "admin" && !containsInt64(u.AllowedGroups, groupID) {
+		http.Error(w, "Acesso negado para exportar relatório deste grupo", http.StatusForbidden)
+		return
+	}
+
+	report, err := s.storage.GetGroupDetailedReportFiltered(groupID, days, 50, u.AllowedGroups)
+	if err != nil {
+		http.Error(w, "Erro ao consolidar dados do relatório", http.StatusInternalServerError)
+		return
+	}
+
+	pdfBytes, err := GenerateGroupReportPDF(report, days)
+	if err != nil {
+		http.Error(w, "Erro ao gerar arquivo PDF: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	safeName := safeFilenameRegex.ReplaceAllString(report.GroupName, "_")
+	if safeName == "" {
+		safeName = "grupo"
+	}
+	filename := fmt.Sprintf("relatorio-coorpdns-%s-%ddias.pdf", safeName, days)
+
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	w.Header().Set("Content-Length", strconv.Itoa(len(pdfBytes)))
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.WriteHeader(http.StatusOK)
+	w.Write(pdfBytes)
+}
+
 func (s *Server) handleReportGroup(w http.ResponseWriter, r *http.Request) {
 	u := s.requireAuth(w, r)
 	if u == nil {
@@ -753,6 +811,7 @@ func (s *Server) handleAssignGroup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.storage.AddGroupAuditLog(req.GroupID, u.Username, u.FullName, "device_assigned", fmt.Sprintf("Dispositivo %s associado a este grupo", req.ClientIP))
 	jsonResponse(w, http.StatusOK, map[string]bool{"success": true})
 }
 
@@ -901,6 +960,7 @@ func (s *Server) handleCreateRemoteClient(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	s.storage.AddGroupAuditLog(req.GroupID, u.Username, u.FullName, "device_created", fmt.Sprintf("Dispositivo remoto criado: %s (%s)", client.Name, client.IP))
 	jsonResponse(w, http.StatusOK, client)
 }
 
@@ -941,6 +1001,7 @@ func (s *Server) handleRevokeRemoteClient(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	s.storage.AddGroupAuditLog(client.GroupID, u.Username, u.FullName, "device_revoked", fmt.Sprintf("Dispositivo remoto revogado: %s", client.Name))
 	jsonResponse(w, http.StatusOK, map[string]bool{"success": true})
 }
 
@@ -1058,6 +1119,13 @@ func (s *Server) handleGroupCategories(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		catBlockedCount := 0
+		for _, act := range req.Rules {
+			if strings.ToLower(strings.TrimSpace(act)) == "block" {
+				catBlockedCount++
+			}
+		}
+		s.storage.AddGroupAuditLog(req.GroupID, u.Username, u.FullName, "categories", fmt.Sprintf("Políticas de categoria salvas (%d bloqueadas)", catBlockedCount))
 		jsonResponse(w, http.StatusOK, map[string]bool{"success": true})
 		return
 	}
@@ -1122,6 +1190,13 @@ func (s *Server) handleGroupApplications(w http.ResponseWriter, r *http.Request)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		appBlockedCount := 0
+		for _, act := range req.Rules {
+			if strings.ToLower(strings.TrimSpace(act)) == "block" {
+				appBlockedCount++
+			}
+		}
+		s.storage.AddGroupAuditLog(req.GroupID, u.Username, u.FullName, "applications", fmt.Sprintf("Políticas de aplicações salvas (%d bloqueadas)", appBlockedCount))
 		jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true, "group_id": req.GroupID})
 		return
 	}
@@ -1189,9 +1264,152 @@ func (s *Server) handleGroupSchedule(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		statusTxt := "desativado"
+		if req.Schedule.Enabled {
+			statusTxt = fmt.Sprintf("ativo (modo: %s, %d blocos)", req.Schedule.Mode, len(req.Schedule.Slots))
+		}
+		s.storage.AddGroupAuditLog(req.GroupID, u.Username, u.FullName, "schedule", fmt.Sprintf("Horário de funcionamento salvo: %s", statusTxt))
 		jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true, "group_id": req.GroupID, "schedule": req.Schedule})
 		return
 	}
+}
+
+func (s *Server) handleGroupDomains(w http.ResponseWriter, r *http.Request) {
+	u := s.requireAuth(w, r)
+	if u == nil {
+		return
+	}
+
+	if r.Method == "GET" {
+		groupID, _ := strconv.ParseInt(r.URL.Query().Get("group_id"), 10, 64)
+		if groupID <= 0 {
+			if u.Role != "admin" && len(u.AllowedGroups) > 0 {
+				groupID = u.AllowedGroups[0]
+			} else {
+				groupID = 1
+			}
+		}
+		if u.Role != "admin" && !containsInt64(u.AllowedGroups, groupID) {
+			http.Error(w, "Acesso negado a este grupo", http.StatusForbidden)
+			return
+		}
+		rules, err := s.storage.GetGroupDomainRules(groupID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"group_id": groupID,
+			"domains":  rules,
+		})
+		return
+	}
+
+	if r.Method == "POST" {
+		var req struct {
+			GroupID int64  `json:"group_id"`
+			Domain  string `json:"domain"`
+			Action  string `json:"action"` // "block" ou "allow"
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid body", http.StatusBadRequest)
+			return
+		}
+		if req.GroupID <= 0 {
+			req.GroupID = 1
+		}
+		if u.Role != "admin" && !containsInt64(u.AllowedGroups, req.GroupID) {
+			http.Error(w, "Acesso negado para gerenciar domínios deste grupo", http.StatusForbidden)
+			return
+		}
+
+		cleanDomain, err := filter.NormalizeCustomDomainInput(req.Domain)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		action := strings.ToLower(strings.TrimSpace(req.Action))
+		if action != "allow" {
+			action = "block"
+		}
+
+		if err := s.storage.UpsertGroupDomainRule(req.GroupID, cleanDomain, action); err != nil {
+			http.Error(w, "Erro ao salvar regra de domínio", http.StatusInternalServerError)
+			return
+		}
+
+		actionDesc := "bloqueado"
+		if action == "allow" {
+			actionDesc = "liberado (exceção)"
+		}
+		s.storage.AddGroupAuditLog(req.GroupID, u.Username, u.FullName, "domain_rule", fmt.Sprintf("Domínio '%s' cadastrado como %s", cleanDomain, actionDesc))
+
+		jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"success": true,
+			"domain":  cleanDomain,
+			"action":  action,
+		})
+		return
+	}
+
+	if r.Method == "DELETE" {
+		groupID, _ := strconv.ParseInt(r.URL.Query().Get("group_id"), 10, 64)
+		ruleID, _ := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
+		if groupID <= 0 || ruleID <= 0 {
+			http.Error(w, "Parâmetros group_id e id obrigatórios", http.StatusBadRequest)
+			return
+		}
+		if u.Role != "admin" && !containsInt64(u.AllowedGroups, groupID) {
+			http.Error(w, "Acesso negado para gerenciar domínios deste grupo", http.StatusForbidden)
+			return
+		}
+
+		if err := s.storage.DeleteGroupDomainRule(groupID, ruleID); err != nil {
+			http.Error(w, "Erro ao remover regra de domínio", http.StatusInternalServerError)
+			return
+		}
+		s.storage.AddGroupAuditLog(groupID, u.Username, u.FullName, "domain_deleted", fmt.Sprintf("Regra de domínio ID %d removida", ruleID))
+		jsonResponse(w, http.StatusOK, map[string]bool{"success": true})
+		return
+	}
+
+	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+}
+
+func (s *Server) handleGroupAudit(w http.ResponseWriter, r *http.Request) {
+	u := s.requireAuth(w, r)
+	if u == nil {
+		return
+	}
+
+	groupID, _ := strconv.ParseInt(r.URL.Query().Get("group_id"), 10, 64)
+	if groupID <= 0 {
+		if u.Role != "admin" && len(u.AllowedGroups) > 0 {
+			groupID = u.AllowedGroups[0]
+		} else {
+			groupID = 1
+		}
+	}
+	if u.Role != "admin" && !containsInt64(u.AllowedGroups, groupID) {
+		http.Error(w, "Acesso negado a este grupo", http.StatusForbidden)
+		return
+	}
+
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 50 {
+		limit = 10
+	}
+
+	logs, err := s.storage.GetGroupAuditLogs(groupID, limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"group_id": groupID,
+		"logs":     logs,
+	})
 }
 
 func (s *Server) handleStatsApplications(w http.ResponseWriter, r *http.Request) {

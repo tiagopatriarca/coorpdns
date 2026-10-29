@@ -510,6 +510,17 @@ func (d *DB) GetGroupReport(groupID int64, days int, maxDomainsPerDevice int) (*
 				var it ClientDomainActivityItem
 				if err := domRows.Scan(&it.Domain, &it.TotalQueries, &it.BlockedQueries); err == nil {
 					catID, catName, icon, color := filter.DetectCategory(it.Domain)
+					if catID == "general" {
+						if appID := filter.DetectApplication(it.Domain); appID != "" {
+							for _, app := range filter.AvailableApplications {
+								if app.ID == appID {
+									catName = app.Name + " (" + strings.ToUpper(app.Category) + ")"
+									color = app.Color
+									break
+								}
+							}
+						}
+					}
 					it.Category = catID
 					it.CategoryName = catName
 
@@ -744,10 +755,11 @@ func (d *DB) GetDashboardGroupStats(days int, allowedGroupIDs []int64) ([]Dashbo
 		       COALESCE(SUM(d.total_queries), 0) as total,
 		       COALESCE(SUM(d.blocked_queries), 0) as blocked
 		FROM client_groups g
-		LEFT JOIN clients c ON c.group_id = g.id
-		LEFT JOIN daily_client_domain_stats d ON d.client_ip = c.ip AND d.date >= ?
+		INNER JOIN clients c ON c.group_id = g.id AND c.status = 'active'
+		LEFT JOIN daily_client_domain_stats d ON (d.client_ip = c.ip OR d.client_ip = c.auth_token OR d.client_ip = ('remote-' || substr(c.auth_token, 1, 10))) AND d.date >= ?
 		WHERE 1=1 %s
 		GROUP BY g.id
+		HAVING COUNT(DISTINCT c.ip) > 0
 		ORDER BY total DESC, g.name ASC
 	`, whereClause)
 

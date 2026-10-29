@@ -268,14 +268,50 @@ func DetectApplication(domain string) string {
 	return ""
 }
 
-// CheckPolicy avalia todas as camadas de proteção para o grupo do cliente aplicando a hierarquia:
-// 1. Allowlist global (exceções)
-// 2. Horário / Agendamento (se habilitado)
-// 3. Aplicações individuais (group_application_rules) -> PRIORIDADE MÁXIMA SOBRE CATEGORIAS!
-// 4. Categorias (group_category_rules)
-// 5. Blocklists globais (listas de bloqueio)
+// NormalizeCustomDomainInput sanitiza e valida domínios inseridos manualmente por administradores
+func NormalizeCustomDomainInput(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", fmt.Errorf("domínio não pode ser vazio")
+	}
+	if strings.HasPrefix(raw, "http://") {
+		raw = strings.TrimPrefix(raw, "http://")
+	} else if strings.HasPrefix(raw, "https://") {
+		raw = strings.TrimPrefix(raw, "https://")
+	}
+	if idx := strings.Index(raw, "/"); idx != -1 {
+		raw = raw[:idx]
+	}
+	if idx := strings.Index(raw, ":"); idx != -1 {
+		raw = raw[:idx]
+	}
+	raw = strings.TrimPrefix(raw, "*.")
+	raw = strings.TrimPrefix(raw, "||")
+	raw = strings.TrimSuffix(raw, "^")
+	raw = CleanDomain(raw)
+
+	if len(raw) < 3 || !strings.Contains(raw, ".") {
+		return "", fmt.Errorf("formato de domínio inválido. Exemplo: empresa.com ou sites.exemplo.com.br")
+	}
+	for _, ch := range raw {
+		if !((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '.' || ch == '-' || ch == '_') {
+			return "", fmt.Errorf("caractere inválido '%c' no domínio", ch)
+		}
+	}
+	return raw, nil
+}
+
+// CheckPolicy avalia todas as camadas de proteção para o grupo do cliente:
+// 1. Allowlist do Grupo (exceções específicas cadastradas para o grupo)
+// 2. Allowlist global (exceções gerais)
+// 3. Horário / Agendamento (se habilitado)
+// 4. Domínios Bloqueados do Grupo (group_domain_rules com action == "block")
+// 5. Aplicações Bloqueadas (group_application_rules) - Lógica aditiva
+// 6. Categorias Bloqueadas (group_category_rules) - Lógica aditiva
+// 7. Blocklists globais (listas de bloqueio padrão)
 func (e *Engine) CheckPolicy(
 	domain string,
+	domainRules map[string]string,
 	appRules map[string]string,
 	catRules map[string]string,
 	schedEnabled bool,
@@ -287,8 +323,22 @@ func (e *Engine) CheckPolicy(
 		return false, ""
 	}
 
+	// 1. Checa Allowlist do Grupo (exceção prioritária do grupo)
+	if domainRules != nil {
+		if action, ok := domainRules[domain]; ok && action == "allow" {
+			return false, "group-allow:" + domain
+		}
+		parts := strings.Split(domain, ".")
+		for i := 0; i < len(parts); i++ {
+			parent := strings.Join(parts[i:], ".")
+			if action, ok := domainRules[parent]; ok && action == "allow" {
+				return false, "group-allow:*." + parent
+			}
+		}
+	}
+
+	// 2. Checa Allowlist geral
 	e.mu.RLock()
-	// 1. Checa Allowlist geral
 	if _, ok := e.exactAllowed[domain]; ok {
 		e.mu.RUnlock()
 		return false, "allow:" + domain
@@ -303,7 +353,7 @@ func (e *Engine) CheckPolicy(
 	}
 	e.mu.RUnlock()
 
-	// 2. Avaliação de Agendamento (se habilitado)
+	// 3. Avaliação de Agendamento (se habilitado)
 	if schedEnabled {
 		switch schedMode {
 		case "total_block":
@@ -317,47 +367,51 @@ func (e *Engine) CheckPolicy(
 			}
 		case "partial_block":
 			if !schedInSlot {
-				// Fora dos horários marcados, as regras de restrição não se aplicam
 				return false, "schedule:outside_window"
 			}
-			// Se estiver dentro da janela agendada, as regras abaixo são aplicadas
 		}
 	}
 
-	// 3. Regras de Aplicação (PRIORIDADE MÁXIMA - Granularidade sobrepõe Categoria)
+	// 4. Domínios Bloqueados do Grupo (group_domain_rules com action == "block")
+	if domainRules != nil {
+		if action, ok := domainRules[domain]; ok && action == "block" {
+			return true, "group-domain:" + domain
+		}
+		parts := strings.Split(domain, ".")
+		for i := 0; i < len(parts); i++ {
+			parent := strings.Join(parts[i:], ".")
+			if action, ok := domainRules[parent]; ok && action == "block" {
+				return true, "group-domain:*." + parent
+			}
+		}
+	}
+
+	// 5. Regras Aditivas de Aplicações:
+	// O que estiver marcado como 'block' bloqueia. Não retorna 'false' caso contrário,
+	// permitindo que a regra de Categoria também seja avaliada de forma somativa.
 	appID := DetectApplication(domain)
 	if appID != "" {
-		if action, exists := appRules[appID]; exists {
-			if action == "block" {
-				// Bloqueio explícito da aplicação (ex: spotify, deezer) - SOBREPÕE QUALQUER CATEGORIA!
-				return true, "app:" + appID
-			} else if action == "allow" {
-				// Liberação explícita da aplicação - SOBREPÕE QUALQUER CATEGORIA!
-				return false, "allow-app:" + appID
-			}
+		if action, exists := appRules[appID]; exists && action == "block" {
+			return true, "app:" + appID
 		}
 	}
 
-	// 4. Regras de Categorias
+	// 6. Regras Aditivas de Categorias:
+	// O que estiver marcado como 'block' bloqueia. Não descarta bloqueio de aplicação nem blocklist global.
 	cat := e.CategorizeDomain(domain)
 	if cat != "" {
-		if action, exists := catRules[cat]; exists {
-			if action == "block" {
-				return true, "category:" + cat
-			} else if action == "allow" {
-				// Categoria explicitamente permitida pelo grupo
-				return false, "allow-category:" + cat
-			}
+		if action, exists := catRules[cat]; exists && action == "block" {
+			return true, "category:" + cat
 		}
 	}
 
-	// 5. Fallback para verificação de listas padrão
+	// 7. Fallback para verificação de listas padrão
 	return e.Check(domain)
 }
 
 // Checa regras considerando as políticas de categorias do grupo do dispositivo (retrocompatibilidade)
 func (e *Engine) CheckWithGroupCategories(domain string, groupRules map[string]string) (blocked bool, matchedRule string) {
-	return e.CheckPolicy(domain, nil, groupRules, false, "", false)
+	return e.CheckPolicy(domain, nil, nil, groupRules, false, "", false)
 }
 
 func (e *Engine) Check(domain string) (blocked bool, matchedRule string) {

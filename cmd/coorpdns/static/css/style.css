@@ -1446,6 +1446,43 @@ code {
   padding-right: 0.4rem;
 }
 
+/* Aba de Categorias da Política sem barra lateral de rolagem interna */
+#subtab-policy-categories .category-grid {
+  max-height: none !important;
+  overflow-y: visible !important;
+  overflow-x: hidden !important;
+  padding-right: 0 !important;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)) !important;
+}
+
+/* Estilos de Sugestão de Domínios e Chips de Exemplo */
+.badge-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.65rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+  font-size: 0.8rem;
+  color: var(--text-main);
+  cursor: pointer;
+  transition: var(--transition);
+  font-family: var(--font-mono, monospace);
+}
+
+.badge-chip:hover {
+  background: var(--accent-blue, #3b82f6);
+  color: #ffffff;
+  border-color: var(--accent-blue, #3b82f6);
+  transform: translateY(-1px);
+}
+
+@media (max-width: 768px) {
+  .domain-rules-container {
+    grid-template-columns: 1fr !important;
+  }
+}
+
 .category-card {
   display: flex;
   align-items: center;

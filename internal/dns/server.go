@@ -118,6 +118,7 @@ func (s *Server) handleDNSRequest(w dns.ResponseWriter, req *dns.Msg) {
 
 	if isBlocking {
 		groupID := s.storage.GetClientGroupID(clientIP)
+		domainRules, _ := s.storage.GetGroupDomainRulesMap(groupID)
 		appRules, _ := s.storage.GetGroupApplicationRules(groupID)
 		catRules, _ := s.storage.GetGroupCategoryRules(groupID)
 		sched, _ := s.storage.GetGroupSchedule(groupID)
@@ -130,7 +131,7 @@ func (s *Server) handleDNSRequest(w dns.ResponseWriter, req *dns.Msg) {
 			schedInSlot = sched.IsInSchedule(time.Now())
 		}
 
-		blocked, matchedRule = s.filter.CheckPolicy(domain, appRules, catRules, schedEnabled, schedMode, schedInSlot)
+		blocked, matchedRule = s.filter.CheckPolicy(domain, domainRules, appRules, catRules, schedEnabled, schedMode, schedInSlot)
 	}
 
 	if blocked {

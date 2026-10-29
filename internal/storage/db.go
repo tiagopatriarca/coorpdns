@@ -36,6 +36,24 @@ type ClientGroup struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+type GroupDomainRule struct {
+	ID        int64     `json:"id"`
+	GroupID   int64     `json:"group_id"`
+	Domain    string    `json:"domain"`
+	Action    string    `json:"action"` // "block" ou "allow"
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type GroupAuditEntry struct {
+	ID         int64     `json:"id"`
+	GroupID    int64     `json:"group_id"`
+	Username   string    `json:"username"`
+	FullName   string    `json:"full_name"`
+	ActionType string    `json:"action_type"`
+	Summary    string    `json:"summary"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
 type Client struct {
 	IP           string    `json:"ip"`
 	Name         string    `json:"name"`
@@ -247,6 +265,29 @@ func (d *DB) migrate() error {
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (group_id) REFERENCES client_groups(id) ON DELETE CASCADE
 	);
+
+	CREATE TABLE IF NOT EXISTS group_domain_rules (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		group_id INTEGER NOT NULL,
+		domain TEXT NOT NULL,
+		action TEXT NOT NULL DEFAULT 'block',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(group_id, domain),
+		FOREIGN KEY (group_id) REFERENCES client_groups(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_group_domains_group ON group_domain_rules(group_id);
+
+	CREATE TABLE IF NOT EXISTS group_audit_logs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		group_id INTEGER NOT NULL,
+		username TEXT NOT NULL,
+		full_name TEXT,
+		action_type TEXT NOT NULL,
+		summary TEXT NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (group_id) REFERENCES client_groups(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_group_audit_group_ts ON group_audit_logs(group_id, id DESC);
 
 	CREATE TABLE IF NOT EXISTS conditional_forwarders (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -706,8 +747,8 @@ func (d *DB) GetRecentLogsFiltered(limit int, filterClient, filterDomain, filter
 	}
 
 	if filterClient != "" {
-		query += " AND q.client_ip = ?"
-		args = append(args, filterClient)
+		query += " AND (q.client_ip = ? OR q.client_ip = (SELECT auth_token FROM clients WHERE ip = ? LIMIT 1) OR q.client_ip = (SELECT 'remote-' || substr(auth_token, 1, 10) FROM clients WHERE ip = ? LIMIT 1) OR q.client_ip = (SELECT name FROM clients WHERE ip = ? LIMIT 1))"
+		args = append(args, filterClient, filterClient, filterClient, filterClient)
 	}
 	if filterDomain != "" {
 		query += " AND q.domain LIKE ?"
@@ -773,7 +814,7 @@ func (d *DB) SetGroupCategoryRule(groupID int64, categoryID, action string) erro
 	return err
 }
 
-// Salva múltiplas regras de categorias de uma vez para um grupo
+// Salva múltiplas regras de categorias de uma vez para um grupo (armazenamento estrito de bloqueios ativos)
 func (d *DB) SetGroupCategories(groupID int64, rules map[string]string) error {
 	tx, err := d.db.Begin()
 	if err != nil {
@@ -781,10 +822,13 @@ func (d *DB) SetGroupCategories(groupID int64, rules map[string]string) error {
 	}
 	defer tx.Rollback()
 
+	if _, err := tx.Exec("DELETE FROM group_category_rules WHERE group_id = ?", groupID); err != nil {
+		return err
+	}
+
 	stmt, err := tx.Prepare(`
 		INSERT INTO group_category_rules (group_id, category_id, action, updated_at)
-		VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-		ON CONFLICT(group_id, category_id) DO UPDATE SET action = excluded.action, updated_at = CURRENT_TIMESTAMP
+		VALUES (?, ?, 'block', CURRENT_TIMESTAMP)
 	`)
 	if err != nil {
 		return err
@@ -792,8 +836,10 @@ func (d *DB) SetGroupCategories(groupID int64, rules map[string]string) error {
 	defer stmt.Close()
 
 	for cat, action := range rules {
-		if _, err := stmt.Exec(groupID, cat, action); err != nil {
-			return err
+		if strings.ToLower(strings.TrimSpace(action)) == "block" {
+			if _, err := stmt.Exec(groupID, cat); err != nil {
+				return err
+			}
 		}
 	}
 	return tx.Commit()
@@ -817,7 +863,7 @@ func (d *DB) GetGroupApplicationRules(groupID int64) (map[string]string, error) 
 	return rules, nil
 }
 
-// Salva múltiplas regras de aplicações de uma vez para um grupo
+// Salva múltiplas regras de aplicações de uma vez para um grupo (armazenamento estrito de bloqueios ativos)
 func (d *DB) SetGroupApplicationRules(groupID int64, rules map[string]string) error {
 	tx, err := d.db.Begin()
 	if err != nil {
@@ -825,10 +871,13 @@ func (d *DB) SetGroupApplicationRules(groupID int64, rules map[string]string) er
 	}
 	defer tx.Rollback()
 
+	if _, err := tx.Exec("DELETE FROM group_application_rules WHERE group_id = ?", groupID); err != nil {
+		return err
+	}
+
 	stmt, err := tx.Prepare(`
 		INSERT INTO group_application_rules (group_id, app_id, action, updated_at)
-		VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-		ON CONFLICT(group_id, app_id) DO UPDATE SET action = excluded.action, updated_at = CURRENT_TIMESTAMP
+		VALUES (?, ?, 'block', CURRENT_TIMESTAMP)
 	`)
 	if err != nil {
 		return err
@@ -836,11 +885,110 @@ func (d *DB) SetGroupApplicationRules(groupID int64, rules map[string]string) er
 	defer stmt.Close()
 
 	for appID, action := range rules {
-		if _, err := stmt.Exec(groupID, appID, action); err != nil {
-			return err
+		if strings.ToLower(strings.TrimSpace(action)) == "block" {
+			if _, err := stmt.Exec(groupID, appID); err != nil {
+				return err
+			}
 		}
 	}
 	return tx.Commit()
+}
+
+// Regras de Domínios Customizados por Grupo (Bloquear ou Liberar)
+func (d *DB) GetGroupDomainRules(groupID int64) ([]GroupDomainRule, error) {
+	rows, err := d.db.Query(`
+		SELECT id, group_id, domain, action, created_at
+		FROM group_domain_rules
+		WHERE group_id = ?
+		ORDER BY action DESC, domain ASC
+	`, groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []GroupDomainRule
+	for rows.Next() {
+		var r GroupDomainRule
+		if err := rows.Scan(&r.ID, &r.GroupID, &r.Domain, &r.Action, &r.CreatedAt); err != nil {
+			continue
+		}
+		list = append(list, r)
+	}
+	return list, nil
+}
+
+func (d *DB) GetGroupDomainRulesMap(groupID int64) (map[string]string, error) {
+	rules, err := d.GetGroupDomainRules(groupID)
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[string]string)
+	for _, r := range rules {
+		m[r.Domain] = r.Action
+	}
+	return m, nil
+}
+
+func (d *DB) UpsertGroupDomainRule(groupID int64, domain, action string) error {
+	action = strings.ToLower(strings.TrimSpace(action))
+	if action != "allow" {
+		action = "block"
+	}
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	_, err := d.db.Exec(`
+		INSERT INTO group_domain_rules (group_id, domain, action, created_at)
+		VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(group_id, domain) DO UPDATE SET action = excluded.action
+	`, groupID, domain, action)
+	return err
+}
+
+func (d *DB) DeleteGroupDomainRule(groupID, ruleID int64) error {
+	_, err := d.db.Exec("DELETE FROM group_domain_rules WHERE group_id = ? AND id = ?", groupID, ruleID)
+	return err
+}
+
+// Auditoria por Grupo (mantém os últimos 10 registros por grupo)
+func (d *DB) AddGroupAuditLog(groupID int64, username, fullName, actionType, summary string) {
+	if groupID <= 0 {
+		return
+	}
+	username = strings.TrimSpace(username)
+	if username == "" {
+		username = "system"
+	}
+	_, _ = d.db.Exec(`
+		INSERT INTO group_audit_logs (group_id, username, full_name, action_type, summary, created_at)
+		VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+	`, groupID, username, fullName, actionType, summary)
+}
+
+func (d *DB) GetGroupAuditLogs(groupID int64, limit int) ([]GroupAuditEntry, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 10
+	}
+	rows, err := d.db.Query(`
+		SELECT id, group_id, username, COALESCE(full_name, ''), action_type, summary, created_at
+		FROM group_audit_logs
+		WHERE group_id = ?
+		ORDER BY id DESC
+		LIMIT ?
+	`, groupID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []GroupAuditEntry
+	for rows.Next() {
+		var e GroupAuditEntry
+		if err := rows.Scan(&e.ID, &e.GroupID, &e.Username, &e.FullName, &e.ActionType, &e.Summary, &e.CreatedAt); err != nil {
+			continue
+		}
+		list = append(list, e)
+	}
+	return list, nil
 }
 
 // Retorna o agendamento / horário de funcionamento de um grupo
