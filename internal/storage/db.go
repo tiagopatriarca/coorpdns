@@ -75,6 +75,18 @@ type ScheduleSlot struct {
 	End   string `json:"end"`
 }
 
+// IsActive indica se o agendamento está habilitado e possui ao menos uma janela horária configurada
+func (s *GroupSchedule) IsActive() bool {
+	if s == nil || !s.Enabled {
+		return false
+	}
+	var slots []ScheduleSlot
+	if err := json.Unmarshal([]byte(s.ScheduleJSON), &slots); err != nil {
+		return false
+	}
+	return len(slots) > 0
+}
+
 // IsInSchedule verifica se o momento informado está dentro dos intervalos configurados
 func (s *GroupSchedule) IsInSchedule(now time.Time) bool {
 	if s == nil || !s.Enabled {
@@ -112,7 +124,7 @@ type DB struct {
 func NewDB(dbPath string, historyDays, rawDays int) (*DB, error) {
 	dir := filepath.Dir(dbPath)
 	if dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0700); err != nil {
 			return nil, err
 		}
 	}
@@ -229,7 +241,7 @@ func (d *DB) migrate() error {
 
 	CREATE TABLE IF NOT EXISTS group_schedules (
 		group_id INTEGER PRIMARY KEY,
-		enabled INTEGER DEFAULT 1,
+		enabled INTEGER DEFAULT 0,
 		mode TEXT NOT NULL DEFAULT 'partial_block',
 		schedule_json TEXT NOT NULL DEFAULT '[]',
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -399,7 +411,7 @@ func (d *DB) UpsertClient(c *Client) error {
 	}
 	query := `
 		INSERT INTO clients (ip, name, mac_address, comment, block_enabled, auth_token, is_remote, status, group_id, os_type)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?)
 		ON CONFLICT(ip) DO UPDATE SET
 			name = excluded.name,
 			mac_address = excluded.mac_address,
@@ -551,7 +563,7 @@ func (d *DB) GetClientByIP(ip string) (*Client, error) {
 }
 
 func (d *DB) CreateRemoteClient(name, comment, osType string, groupID int64) (*Client, error) {
-	b := make([]byte, 12)
+	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		return nil, err
 	}
@@ -843,7 +855,7 @@ func (d *DB) GetGroupSchedule(groupID int64) (*GroupSchedule, error) {
 		if err == sql.ErrNoRows {
 			return &GroupSchedule{
 				GroupID:      groupID,
-				Enabled:      true,
+				Enabled:      false,
 				Mode:         "partial_block",
 				ScheduleJSON: "[]",
 				UpdatedAt:    time.Now(),

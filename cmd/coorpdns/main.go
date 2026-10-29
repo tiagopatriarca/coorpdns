@@ -78,6 +78,7 @@ func main() {
 
 	// 5. Inicia Servidor Web e API REST
 	webServer := web.NewServer(cfg, filterEngine, store, *configPath, staticFS)
+	webServer.SetOnForwardersChange(dnsServer.ReloadConditionalForwarders)
 	httpServer := &http.Server{
 		Addr:              cfg.Server.WebAddress,
 		Handler:           webServer.Routes(),

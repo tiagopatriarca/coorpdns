@@ -217,6 +217,10 @@ func (d *DB) GetTopClientsFiltered(days int, limit int, allowedGroupIDs []int64)
 
 // Relatório 3: Máquina x Sites Acessados por Período (até 180 dias)
 func (d *DB) GetClientDomainActivity(clientIP string, days int, fromDate, toDate string, limit int) ([]ClientDomainActivityItem, error) {
+	return d.GetClientDomainActivityFiltered(clientIP, days, fromDate, toDate, limit, nil)
+}
+
+func (d *DB) GetClientDomainActivityFiltered(clientIP string, days int, fromDate, toDate string, limit int, allowedGroupIDs []int64) ([]ClientDomainActivityItem, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
@@ -230,6 +234,12 @@ func (d *DB) GetClientDomainActivity(clientIP string, days int, fromDate, toDate
 		FROM daily_client_domain_stats
 		WHERE 1=1
 	`
+
+	if allowedGroupIDs != nil {
+		cond, condArgs := buildClientInGroupSubquery("client_ip", allowedGroupIDs)
+		query += " AND " + cond
+		args = append(args, condArgs...)
+	}
 
 	if clientIP != "" && clientIP != "all" {
 		query += " AND client_ip = ?"
@@ -724,9 +734,9 @@ func (d *DB) GetDashboardGroupStats(days int, allowedGroupIDs []int64) ([]Dashbo
 	args = append(args, cutoffDate)
 
 	if allowedGroupIDs != nil {
-		cond, condArgs := buildClientInGroupSubquery("c.ip", allowedGroupIDs)
-		whereClause = " AND " + cond
-		args = append(args, condArgs...)
+		clause, clauseArgs := buildGroupFilterClause("g.id", allowedGroupIDs)
+		whereClause = " AND " + clause
+		args = append(args, clauseArgs...)
 	}
 
 	query := fmt.Sprintf(`

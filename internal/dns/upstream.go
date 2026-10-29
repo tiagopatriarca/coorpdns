@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -44,6 +45,7 @@ func NewUpstreamResolver(upstreams []string) *UpstreamResolver {
 			Net:     "tcp-tls",
 			Timeout: 4 * time.Second,
 			TLSConfig: &tls.Config{
+				MinVersion:         tls.VersionTLS12,
 				InsecureSkipVerify: false,
 			},
 		},
@@ -115,7 +117,20 @@ func (u *UpstreamResolver) queryTarget(req *dns.Msg, target string) (*dns.Msg, e
 		if !strings.Contains(hostPort, ":") {
 			hostPort += ":853"
 		}
-		resp, _, err := u.tlsClient.Exchange(req, hostPort)
+		host, _, splitErr := net.SplitHostPort(hostPort)
+		if splitErr != nil {
+			host = hostPort
+		}
+		perTargetTLS := &dns.Client{
+			Net:     "tcp-tls",
+			Timeout: 4 * time.Second,
+			TLSConfig: &tls.Config{
+				MinVersion:         tls.VersionTLS12,
+				InsecureSkipVerify: false,
+				ServerName:         host,
+			},
+		}
+		resp, _, err := perTargetTLS.Exchange(req, hostPort)
 		return resp, err
 	}
 
@@ -157,7 +172,7 @@ func (u *UpstreamResolver) queryDoH(req *dns.Msg, url string) (*dns.Msg, error) 
 		return nil, fmt.Errorf("DoH HTTP %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 65536))
 	if err != nil {
 		return nil, err
 	}

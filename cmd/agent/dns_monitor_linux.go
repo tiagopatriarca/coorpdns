@@ -6,12 +6,16 @@ import (
 	"bufio"
 	"context"
 	"log"
+	"net"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 )
+
+var validLinuxIfaceRegex = regexp.MustCompile(`^[a-zA-Z0-9_.\-]{1,32}$`)
 
 type DNSMonitor struct {
 	mu             sync.Mutex
@@ -65,9 +69,9 @@ func (m *DNSMonitor) checkAndEnforce() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// 1. Detectar interface ativa com rota padrão
+	// 1. Detectar interface ativa com rota padrão e validar formato seguro
 	iface := getActiveLinuxInterface()
-	if iface == "" {
+	if iface == "" || !validLinuxIfaceRegex.MatchString(iface) {
 		return
 	}
 	m.lastIface = iface
@@ -78,13 +82,13 @@ func (m *DNSMonitor) checkAndEnforce() {
 		if err == nil {
 			strOut := string(out)
 			if !strings.Contains(strOut, "127.0.0.1") {
-				// Captura DNS anterior para fallback
+				// Captura DNS anterior para fallback validando IP estrito
 				for _, part := range strings.Fields(strOut) {
 					cleanIP := strings.TrimSpace(part)
-					if cleanIP != "" && cleanIP != "127.0.0.1" && !strings.HasPrefix(cleanIP, "127.") && !strings.Contains(cleanIP, ":") && strings.Count(cleanIP, ".") == 3 {
+					if parsed := net.ParseIP(cleanIP); parsed != nil && !parsed.IsLoopback() && !parsed.IsUnspecified() && parsed.To4() != nil {
 						if m.fallbackSetter != nil {
-							m.fallbackSetter(cleanIP)
-							log.Printf("[DNS-MONITOR] 📡 DNS detectado no DHCP da interface '%s': %s (salvo como fallback)", iface, cleanIP)
+							m.fallbackSetter(parsed.String())
+							log.Printf("[DNS-MONITOR] 📡 DNS detectado no DHCP da interface '%s': %s (salvo como fallback)", iface, parsed.String())
 						}
 						break
 					}

@@ -13,25 +13,52 @@ import (
 	"github.com/miekg/dns"
 )
 
-// handleDoH processa consultas DNS-over-HTTPS autenticadas por token exclusivo: /dns-query/{token}
+// handleDoH processa consultas DNS-over-HTTPS autenticadas por token exclusivo via Bearer header ou URL (/dns-query/{token})
 func (s *Server) handleDoH(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 
-	// 1. Extrai token da URL (/dns-query/{token}) ou do cabeçalho/query param
-	path := strings.TrimPrefix(r.URL.Path, "/dns-query")
-	token := strings.Trim(path, "/")
-	if token == "" {
-		token = r.URL.Query().Get("token")
-	}
-
-	if token == "" {
-		http.Error(w, "CoorpDNS: Autenticação obrigatória. Forneça o token do seu dispositivo na URL (/dns-query/SEU_TOKEN).", http.StatusUnauthorized)
+	clientIP := s.clientIP(r)
+	dohKey := "doh:" + clientIP
+	if s.tokenLimiter != nil && !s.tokenLimiter.AllowWithLimit(dohKey, 20, 5*time.Minute) {
+		http.Error(w, "CoorpDNS: Muitas falhas de autenticação DoH. Tente novamente mais tarde.", http.StatusTooManyRequests)
 		return
 	}
 
-	// 2. Valida cliente e status no banco de dados
+	// 1. Extrai token preferencialmente de cabeçalho HTTP (evitando logs em proxy reverso), com fallback para URL
+	token := ""
+	if authHeader := r.Header.Get("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
+		token = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+	}
+	if token == "" {
+		token = strings.TrimSpace(r.Header.Get("X-CoorpDNS-Token"))
+	}
+	if token == "" {
+		path := strings.TrimPrefix(r.URL.Path, "/dns-query")
+		token = strings.Trim(path, "/")
+	}
+	if token == "" {
+		token = strings.TrimSpace(r.URL.Query().Get("token"))
+	}
+
+	if token == "" {
+		http.Error(w, "CoorpDNS: Autenticação obrigatória. Envie Authorization: Bearer <TOKEN> ou /dns-query/<TOKEN>.", http.StatusUnauthorized)
+		return
+	}
+
+	// 2. Valida formato e status do cliente no banco de dados
+	if !tokenRegex.MatchString(token) {
+		if s.tokenLimiter != nil {
+			s.tokenLimiter.RecordFailedAttempt(dohKey)
+		}
+		http.Error(w, "CoorpDNS: Formato de token inválido.", http.StatusForbidden)
+		return
+	}
+
 	client, err := s.storage.GetClientByToken(token)
 	if err != nil || client == nil || client.Status != "active" {
+		if s.tokenLimiter != nil {
+			s.tokenLimiter.RecordFailedAttempt(dohKey)
+		}
 		http.Error(w, "CoorpDNS: Cliente não autorizado ou token revogado.", http.StatusForbidden)
 		return
 	}
@@ -48,8 +75,8 @@ func (s *Server) handleDoH(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if r.Method == http.MethodGet {
 		dnsParam := r.URL.Query().Get("dns")
-		if dnsParam == "" {
-			http.Error(w, "Parâmetro ?dns obrigatório", http.StatusBadRequest)
+		if dnsParam == "" || len(dnsParam) > 88000 {
+			http.Error(w, "Parâmetro ?dns obrigatório ou excessivo", http.StatusBadRequest)
 			return
 		}
 		dnsPayload, err = base64.RawURLEncoding.DecodeString(dnsParam)
@@ -78,8 +105,9 @@ func (s *Server) handleDoH(w http.ResponseWriter, r *http.Request) {
 	domain := filter.CleanDomain(qname)
 	qtypeStr := dns.TypeToString[q.Qtype]
 
-	// 4. Checagem de Bloqueio / Sinkhole com categorias por grupo
-	isBlocking := s.cfg.IsBlockingActive() && client.BlockEnabled
+	// 4. Checagem de Bloqueio / Sinkhole respeitando pausa temporária e categorias por grupo
+	globalActive, _ := s.cfg.IsBlockingEffective()
+	isBlocking := globalActive && client.BlockEnabled
 	blocked := false
 	matchedRule := ""
 
@@ -88,7 +116,7 @@ func (s *Server) handleDoH(w http.ResponseWriter, r *http.Request) {
 		catRules, _ := s.storage.GetGroupCategoryRules(client.GroupID)
 		sched, _ := s.storage.GetGroupSchedule(client.GroupID)
 
-		schedEnabled := sched != nil && sched.Enabled
+		schedEnabled := sched.IsActive()
 		schedMode := ""
 		schedInSlot := false
 		if schedEnabled {
@@ -108,11 +136,7 @@ func (s *Server) handleDoH(w http.ResponseWriter, r *http.Request) {
 		respMsg.Authoritative = true
 		respMsg.Rcode = dns.RcodeSuccess
 
-		ttl := uint32(s.cfg.Server.BlockTTL)
-		if ttl == 0 {
-			ttl = 10
-		}
-
+		ttl := s.cfg.GetBlockTTL()
 		header := dns.RR_Header{
 			Name:   q.Name,
 			Rrtype: q.Qtype,
@@ -121,8 +145,9 @@ func (s *Server) handleDoH(w http.ResponseWriter, r *http.Request) {
 		}
 
 		targetIPv4 := net.ParseIP("0.0.0.0")
-		if s.cfg.Server.BlockMode == "block_page" {
-			serverHost := s.cfg.Server.ServerIP
+		blockMode, serverIP, _, _, _, _ := s.cfg.GetSupportInfo()
+		if blockMode == "block_page" && serverIP != "" {
+			serverHost := serverIP
 			serverHost = strings.TrimPrefix(serverHost, "https://")
 			serverHost = strings.TrimPrefix(serverHost, "http://")
 			if idx := strings.Index(serverHost, "/"); idx != -1 {
@@ -131,10 +156,8 @@ func (s *Server) handleDoH(w http.ResponseWriter, r *http.Request) {
 			if idx := strings.Index(serverHost, ":"); idx != -1 {
 				serverHost = serverHost[:idx]
 			}
-			if parsed := net.ParseIP(serverHost); parsed != nil {
-				targetIPv4 = parsed
-			} else {
-				targetIPv4 = net.ParseIP("187.77.46.13")
+			if parsed := net.ParseIP(serverHost); parsed != nil && parsed.To4() != nil {
+				targetIPv4 = parsed.To4()
 			}
 		}
 
@@ -173,7 +196,6 @@ func (s *Server) handleDoH(w http.ResponseWriter, r *http.Request) {
 		statusStr = "blocked"
 	}
 
-	// Usa o IP virtual ou identificador do cliente remoto para que as consultas apareçam sob o nome da máquina
 	clientIdentifier := client.IP
 	if clientIdentifier == "" {
 		clientIdentifier = client.Name

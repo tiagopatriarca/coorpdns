@@ -47,3 +47,6 @@ desktop.ini
 # Node & Scratch Test Files
 node_modules/
 npm-debug.log*
+
+# Security Audit Reports (Local Only)
+/RELATORIO_AUDITORIA_SEGURANCA.md

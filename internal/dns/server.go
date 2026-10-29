@@ -109,15 +109,8 @@ func (s *Server) handleDNSRequest(w dns.ResponseWriter, req *dns.Msg) {
 		clientIP = w.RemoteAddr().String()
 	}
 
-	// 1. Checa se o bloqueio está ativo globalmente ou se está em pausa temporária
-	isBlocking := s.cfg.IsBlockingActive()
-	if s.cfg.Server.PauseTimeout > 0 {
-		if time.Now().Unix() < s.cfg.Server.PauseTimeout {
-			isBlocking = false
-		} else {
-			s.cfg.Server.PauseTimeout = 0
-		}
-	}
+	// 1. Checa de forma thread-safe se o bloqueio está ativo globalmente ou em pausa temporária
+	isBlocking, _ := s.cfg.IsBlockingEffective()
 
 	// 2. Avalia regras do Sinkhole com categorias configuradas para o grupo do cliente
 	blocked := false
@@ -129,7 +122,7 @@ func (s *Server) handleDNSRequest(w dns.ResponseWriter, req *dns.Msg) {
 		catRules, _ := s.storage.GetGroupCategoryRules(groupID)
 		sched, _ := s.storage.GetGroupSchedule(groupID)
 
-		schedEnabled := sched != nil && sched.Enabled
+		schedEnabled := sched.IsActive()
 		schedMode := ""
 		schedInSlot := false
 		if schedEnabled {
@@ -210,10 +203,7 @@ func (s *Server) buildSinkholeResponse(req *dns.Msg, q dns.Question, matchedRule
 	resp.Authoritative = true
 	resp.Rcode = dns.RcodeSuccess
 
-	ttl := s.cfg.Server.BlockTTL
-	if ttl == 0 {
-		ttl = 10
-	}
+	ttl := s.cfg.GetBlockTTL()
 
 	header := dns.RR_Header{
 		Name:   q.Name,
@@ -223,9 +213,10 @@ func (s *Server) buildSinkholeResponse(req *dns.Msg, q dns.Question, matchedRule
 	}
 
 	targetIPv4 := net.ParseIP("0.0.0.0")
-	// Se modo de página de bloqueio estiver ativo e tiver IP configurado, direciona para o servidor
-	if s.cfg.Server.BlockMode == "block_page" {
-		serverHost := s.cfg.Server.ServerIP
+	blockMode, serverIP, _, _, _, _ := s.cfg.GetSupportInfo()
+	// Se modo de página de bloqueio estiver ativo e tiver IPv4 válido configurado, direciona para o servidor
+	if blockMode == "block_page" && serverIP != "" {
+		serverHost := serverIP
 		serverHost = strings.TrimPrefix(serverHost, "https://")
 		serverHost = strings.TrimPrefix(serverHost, "http://")
 		if idx := strings.Index(serverHost, "/"); idx != -1 {
@@ -234,10 +225,8 @@ func (s *Server) buildSinkholeResponse(req *dns.Msg, q dns.Question, matchedRule
 		if idx := strings.Index(serverHost, ":"); idx != -1 {
 			serverHost = serverHost[:idx]
 		}
-		if parsed := net.ParseIP(serverHost); parsed != nil {
-			targetIPv4 = parsed
-		} else {
-			targetIPv4 = net.ParseIP("187.77.46.13")
+		if parsed := net.ParseIP(serverHost); parsed != nil && parsed.To4() != nil {
+			targetIPv4 = parsed.To4()
 		}
 	}
 

@@ -2,8 +2,11 @@ package filter
 
 import (
 	"bufio"
+	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -515,7 +518,30 @@ func ParseRulesReader(r io.Reader) []string {
 	return rules
 }
 
-// Download com timeout, validação de esquema anti-SSRF e limite de tamanho
+// isRestrictedIP bloqueia endereços internos, loopback, link-local, metadata de nuvem e CGNAT contra SSRF
+func isRestrictedIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
+		return true
+	}
+	if ip4 := ip.To4(); ip4 != nil {
+		// 0.0.0.0/8 (rede atual), 100.64.0.0/10 (CGNAT), 169.254.0.0/16 (Cloud Metadata), 240.0.0.0/4 (reservado)
+		if ip4[0] == 0 || ip4[0] >= 240 {
+			return true
+		}
+		if ip4[0] == 100 && (ip4[1]&0xC0) == 64 {
+			return true
+		}
+		if ip4[0] == 169 && ip4[1] == 254 {
+			return true
+		}
+	}
+	return false
+}
+
+// Download com timeout, dialer anti-SSRF (bloqueio de IPs privados/loopback/metadata + DNS rebinding) e limite de tamanho
 func FetchList(urlStr string) ([]string, error) {
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
@@ -524,9 +550,46 @@ func FetchList(urlStr string) ([]string, error) {
 	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
 		return nil, fmt.Errorf("esquema não permitido (apenas http e https): %s", parsedURL.Scheme)
 	}
+	if parsedURL.Hostname() == "" {
+		return nil, errors.New("host da URL ausente")
+	}
+
+	dialer := &net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 15 * time.Second,
+	}
+
+	safeTransport := &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil || len(ips) == 0 {
+				return nil, fmt.Errorf("falha ao resolver host %s: %w", host, err)
+			}
+			for _, ipAddr := range ips {
+				if isRestrictedIP(ipAddr.IP) {
+					return nil, fmt.Errorf("bloqueio anti-SSRF: endereço IP restrito/interno (%s) para host %s", ipAddr.IP.String(), host)
+				}
+			}
+			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+		},
+	}
 
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout:   30 * time.Second,
+		Transport: safeTransport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return errors.New("número máximo de redirecionamentos excedido")
+			}
+			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+				return fmt.Errorf("redirecionamento para esquema não permitido: %s", req.URL.Scheme)
+			}
+			return nil
+		},
 	}
 
 	req, err := http.NewRequest("GET", urlStr, nil)

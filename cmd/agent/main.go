@@ -3,11 +3,14 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -43,14 +46,13 @@ func (a *Agent) setDynamicFallback(ip string) {
 	a.fallbackMu.Lock()
 	defer a.fallbackMu.Unlock()
 	cleanIP := strings.TrimSpace(ip)
-	if cleanIP == "" || cleanIP == "127.0.0.1" || strings.HasPrefix(cleanIP, "127.") {
+	parsed := net.ParseIP(cleanIP)
+	if parsed == nil || parsed.IsLoopback() || parsed.IsUnspecified() {
 		return
 	}
-	if !strings.Contains(cleanIP, ":") {
-		cleanIP = cleanIP + ":53"
-	}
-	if a.dynamicFallback != cleanIP {
-		a.dynamicFallback = cleanIP
+	addr := net.JoinHostPort(parsed.String(), "53")
+	if a.dynamicFallback != addr {
+		a.dynamicFallback = addr
 		log.Printf("[FALLBACK] 🔄 Fallback dinâmico atualizado para: %s", a.dynamicFallback)
 	}
 }
@@ -74,6 +76,14 @@ func main() {
 	}
 
 	trimmedURL := strings.TrimRight(*serverURL, "/")
+	parsedSrv, err := url.Parse(trimmedURL)
+	if err != nil || parsedSrv.Host == "" {
+		log.Fatalf("[ERRO] URL do servidor inválida: %s", trimmedURL)
+	}
+	srvHost := strings.ToLower(parsedSrv.Hostname())
+	if parsedSrv.Scheme != "https" && !(parsedSrv.Scheme == "http" && (srvHost == "localhost" || srvHost == "127.0.0.1")) {
+		log.Fatalf("[ERRO] Segurança corporativa: o parâmetro -server deve utilizar HTTPS (recebido: %s)", parsedSrv.Scheme)
+	}
 
 	agent := &Agent{
 		serverURL:  trimmedURL,
@@ -86,6 +96,9 @@ func main() {
 				MaxIdleConns:        50,
 				MaxIdleConnsPerHost: 10,
 				IdleConnTimeout:     60 * time.Second,
+				TLSClientConfig: &tls.Config{
+					MinVersion: tls.VersionTLS12,
+				},
 			},
 		},
 		udpClient: &dns.Client{
@@ -200,13 +213,15 @@ func (a *Agent) queryCloudDoH(req *dns.Msg) (*dns.Msg, error) {
 		return nil, err
 	}
 
-	targetURL := fmt.Sprintf("%s/dns-query/%s", a.serverURL, a.token)
+	// Envia token via cabeçalho Authorization: Bearer para não expor credencial em logs de proxy reverso
+	targetURL := fmt.Sprintf("%s/dns-query", a.serverURL)
 	httpReq, err := http.NewRequest("POST", targetURL, bytes.NewReader(packed))
 	if err != nil {
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/dns-message")
 	httpReq.Header.Set("Accept", "application/dns-message")
+	httpReq.Header.Set("Authorization", "Bearer "+a.token)
 
 	resp, err := a.httpClient.Do(httpReq)
 	if err != nil {
@@ -218,7 +233,7 @@ func (a *Agent) queryCloudDoH(req *dns.Msg) (*dns.Msg, error) {
 		return nil, fmt.Errorf("HTTP status %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 65536))
 	if err != nil {
 		return nil, err
 	}

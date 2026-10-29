@@ -52,6 +52,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupSidebarCollapse();
   setupMobileSidebar();
   setupChartControls();
+  setupDelegatedActions();
 
   // Validação de autenticação inicial
   checkAuth();
@@ -280,7 +281,7 @@ async function loadQuickClients() {
 
     tbody.innerHTML = clients.map(c => `
       <tr>
-        <td><strong>${escapeHtml(c.client_name)}</strong> <small class="text-muted">(${c.client_ip})</small></td>
+        <td><strong>${escapeHtml(c.client_name)}</strong> <small class="text-muted">(${escapeHtml(c.client_ip)})</small></td>
         <td>${c.total_queries.toLocaleString()}</td>
         <td class="text-red">${c.blocked_queries.toLocaleString()} (${c.block_rate.toFixed(0)}%)</td>
       </tr>
@@ -331,14 +332,14 @@ async function renderTimelineChart() {
       if (p.total_queries > 0) {
         circleNodes += `
           <circle cx="${x}" cy="${yTotal}" r="4" fill="#10b981" stroke="#090d16" stroke-width="2">
-            <title>${p.date} - Total: ${p.total_queries} consultas</title>
+            <title>${escapeHtml(p.date)} - Total: ${p.total_queries} consultas</title>
           </circle>
         `;
       }
       if (p.blocked_queries > 0) {
         circleNodes += `
           <circle cx="${x}" cy="${yBlocked}" r="3.5" fill="#ef4444" stroke="#090d16" stroke-width="2">
-            <title>${p.date} - Bloqueadas: ${p.blocked_queries}</title>
+            <title>${escapeHtml(p.date)} - Bloqueadas: ${p.blocked_queries}</title>
           </circle>
         `;
       }
@@ -357,7 +358,7 @@ async function renderTimelineChart() {
     points.forEach((p, idx) => {
       if (idx % labelStep === 0 || idx === points.length - 1) {
         const x = paddingLeft + idx * stepX;
-        xLabels += `<text x="${x}" y="${height - 10}" text-anchor="middle" fill="#64748b" font-size="11" font-family="sans-serif">${p.date}</text>`;
+        xLabels += `<text x="${x}" y="${height - 10}" text-anchor="middle" fill="#64748b" font-size="11" font-family="sans-serif">${escapeHtml(p.date)}</text>`;
       }
     });
 
@@ -511,7 +512,7 @@ async function loadGroupReport() {
     const data = await res.json();
 
     summaryStrip.innerHTML = `
-      <span>Grupo: <strong style="color: ${data.group_color || 'inherit'};">● ${escapeHtml(data.group_name)}</strong></span>
+      <span>Grupo: <strong style="color: ${sanitizeColor(data.group_color, 'inherit')};">● ${escapeHtml(data.group_name)}</strong></span>
       <span>Dispositivos no Grupo: <strong>${data.devices_count}</strong></span>
       <span>Consultas no Período: <strong>${data.total_queries.toLocaleString()}</strong></span>
       <span>Bloqueadas: <strong class="text-red">${data.blocked_queries.toLocaleString()} (${data.block_rate.toFixed(1)}%)</strong></span>
@@ -544,11 +545,11 @@ async function loadGroupReport() {
               const catBlockId = `dev-${idx}-cat-${catIdx}`;
               const isBlocked = cat.blocked_queries > 0;
               return `
-                <div class="device-category-block" style="border-left: 3.5px solid ${cat.color || '#3b82f6'};">
-                  <div class="device-category-header" onclick="toggleDeviceCategory('${catBlockId}')">
+                <div class="device-category-block" style="border-left: 3.5px solid ${sanitizeColor(cat.color, '#3b82f6')};">
+                  <div class="device-category-header" data-action="toggle-device-category" data-target-id="${catBlockId}">
                     <div class="device-category-title">
                       <span style="font-size: 1.15rem;">${renderCategoryIcon(cat.icon)}</span>
-                      <span style="color: ${cat.color || 'var(--text-main)'}; font-weight: 600;">${escapeHtml(cat.category_name)}</span>
+                      <span style="color: ${sanitizeColor(cat.color, 'var(--text-main)')}; font-weight: 600;">${escapeHtml(cat.category_name)}</span>
                       <span class="badge" style="background: rgba(255, 255, 255, 0.08); font-size: 0.72rem; padding: 0.15rem 0.45rem; border-radius: 4px; color: var(--text-muted);">${cat.domains_count} ${cat.domains_count === 1 ? 'site' : 'sites'}</span>
                     </div>
                     <div class="device-category-stats">
@@ -582,9 +583,9 @@ async function loadGroupReport() {
                               </td>
                               <td style="text-align: right;">
                                 ${d.blocked_queries > 0 ? `
-                                  <button class="btn btn-secondary btn-sm" onclick="quickAllowDomain('${d.domain}')">Liberar</button>
+                                  <button class="btn btn-secondary btn-sm" data-action="quick-allow-domain" data-domain="${escapeHtml(d.domain)}">Liberar</button>
                                 ` : `
-                                  <button class="btn btn-danger btn-sm" onclick="quickBlockDomain('${d.domain}')">Bloquear</button>
+                                  <button class="btn btn-danger btn-sm" data-action="quick-block-domain" data-domain="${escapeHtml(d.domain)}">Bloquear</button>
                                 `}
                               </td>
                             </tr>
@@ -600,13 +601,13 @@ async function loadGroupReport() {
         `;
 
       return `
-        <div class="group-device-card" style="border-left: 4px solid ${data.group_color || '#10b981'};">
-          <div class="group-device-header" onclick="toggleGroupDeviceCard('group-dev-body-${idx}', '${idx}')">
+        <div class="group-device-card" style="border-left: 4px solid ${sanitizeColor(data.group_color, '#10b981')};">
+          <div class="group-device-header" data-action="toggle-group-device" data-target-id="group-dev-body-${idx}" data-dev-idx="${idx}">
             <div class="group-device-meta">
               <span style="font-weight: 700; font-size: 1.05rem;">${escapeHtml(dev.client_name)}</span>
               ${typeBadge}
               ${dev.is_remote ? osBadge : ''}
-              <code style="font-size: 0.8rem; color: var(--text-dim);">${dev.client_ip}</code>
+              <code style="font-size: 0.8rem; color: var(--text-dim);">${escapeHtml(dev.client_ip)}</code>
             </div>
             <div class="group-device-stats">
               <span><strong>${dev.total_queries.toLocaleString()}</strong> consultas</span>
@@ -652,9 +653,9 @@ function renderCategoryIcon(icon) {
     }
   }
   if (icon.startsWith('fa') || icon.includes('fa-')) {
-    return `<i class="${icon}"></i>`;
+    return `<i class="${sanitizeIconClass(icon)}"></i>`;
   }
-  return icon;
+  return escapeHtml(icon);
 }
 
 window.toggleGroupDeviceCard = function(id, devIdx) {
@@ -723,9 +724,9 @@ async function loadReportTopSites() {
           </td>
           <td>
             ${isBlocked ? `
-              <button class="btn btn-secondary btn-sm" onclick="quickAllowDomain('${d.domain}')">Liberar</button>
+              <button class="btn btn-secondary btn-sm" data-action="quick-allow-domain" data-domain="${escapeHtml(d.domain)}">Liberar</button>
             ` : `
-              <button class="btn btn-danger btn-sm" onclick="quickBlockDomain('${d.domain}')">Bloquear</button>
+              <button class="btn btn-danger btn-sm" data-action="quick-block-domain" data-domain="${escapeHtml(d.domain)}">Bloquear</button>
             `}
           </td>
         </tr>
@@ -756,7 +757,7 @@ async function loadReportTopMachines() {
         <td><strong class="text-dim">#${idx + 1}</strong></td>
         <td>
           <strong>${escapeHtml(c.client_name)}</strong><br>
-          <code class="text-dim">${c.client_ip}</code>
+          <code class="text-dim">${escapeHtml(c.client_ip)}</code>
         </td>
         <td><strong>${c.total_queries.toLocaleString()}</strong></td>
         <td class="text-red">${c.blocked_queries.toLocaleString()}</td>
@@ -766,7 +767,7 @@ async function loadReportTopMachines() {
           </span>
         </td>
         <td>
-          <button class="btn btn-secondary btn-sm" onclick="inspectClientMatrix('${c.client_ip}')">
+          <button class="btn btn-secondary btn-sm" data-action="inspect-client-matrix" data-client-ip="${escapeHtml(c.client_ip)}">
             Ver Sites &rarr;
           </button>
         </td>
@@ -787,8 +788,8 @@ async function loadReportMatrixClients() {
 
     select.innerHTML = '<option value="all">Todas as Máquinas Combinadas</option>' +
       state.clients.map(c => `
-        <option value="${c.ip}" ${c.ip === state.selectedClientForMatrix ? 'selected' : ''}>
-          ${escapeHtml(c.name)} (${c.ip})
+        <option value="${escapeHtml(c.ip)}" ${c.ip === state.selectedClientForMatrix ? 'selected' : ''}>
+          ${escapeHtml(c.name)} (${escapeHtml(c.ip)})
         </option>
       `).join('');
 
@@ -833,7 +834,7 @@ async function loadReportMatrix() {
         <td>${item.total_queries.toLocaleString()}</td>
         <td class="${item.blocked_queries > 0 ? 'text-red' : 'text-muted'}">${item.blocked_queries.toLocaleString()}</td>
         <td>
-          <button class="btn btn-secondary btn-sm" onclick="quickBlockDomain('${item.domain}')">Bloquear</button>
+          <button class="btn btn-secondary btn-sm" data-action="quick-block-domain" data-domain="${escapeHtml(item.domain)}">Bloquear</button>
         </td>
       </tr>
     `).join('');
@@ -903,15 +904,15 @@ async function loadLiveLogs() {
           <td title="Identificador: ${escapeHtml(l.client_ip)}">
             <span style="font-weight: 600; color: var(--text-main);">${escapeHtml(deviceName)}</span>
           </td>
-          <td><span class="text-dim">${l.qtype}</span></td>
+          <td><span class="text-dim">${escapeHtml(l.qtype)}</span></td>
           <td title="${escapeHtml(l.domain)}"><strong>${escapeHtml(l.domain)}</strong></td>
           <td><span class="tag-badge ${isBlocked ? 'blocked' : 'allowed'}">${isBlocked ? 'Bloqueado' : 'Permitido'}</span></td>
           <td title="${escapeHtml(l.rule_matched || l.upstream)}"><small class="text-dim">${escapeHtml(l.rule_matched || l.upstream)}</small></td>
           <td style="text-align: center;">
             ${isBlocked ? `
-              <button class="btn btn-secondary btn-sm" onclick="quickAllowDomain('${escapeHtml(l.domain)}')">Liberar</button>
+              <button class="btn btn-secondary btn-sm" data-action="quick-allow-domain" data-domain="${escapeHtml(l.domain)}">Liberar</button>
             ` : `
-              <button class="btn btn-danger btn-sm" onclick="quickBlockDomain('${escapeHtml(l.domain)}')">Bloquear</button>
+              <button class="btn btn-danger btn-sm" data-action="quick-block-domain" data-domain="${escapeHtml(l.domain)}">Bloquear</button>
             `}
           </td>
         </tr>
@@ -1222,7 +1223,7 @@ async function loadGroups() {
       listContainer.innerHTML = state.groups.map(g => `
         <div class="group-item-row">
           <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <span class="group-dot" style="background: ${g.color};"></span>
+            <span class="group-dot" style="background: ${sanitizeColor(g.color, '#64748b')};"></span>
             <div>
               <strong>${escapeHtml(g.name)}</strong>
               ${g.description ? `<br><small class="text-dim">${escapeHtml(g.description)}</small>` : ''}
@@ -1264,7 +1265,7 @@ async function loadClients() {
       
       const groupBadge = `
         <span class="group-badge">
-          <span class="group-dot" style="background: ${c.group_color || '#64748b'};"></span>
+          <span class="group-dot" style="background: ${sanitizeColor(c.group_color, '#64748b')};"></span>
           ${escapeHtml(c.group_name || 'Geral / Padrão')}
         </span>
       `;
@@ -1284,19 +1285,19 @@ async function loadClients() {
           <td style="text-align: right; overflow: visible;">
             <div style="display: inline-flex; gap: 0.35rem; justify-content: flex-end; align-items: center; white-space: nowrap;">
               ${isRemote && !isRevoked ? (c.os_type === 'linux' ? `
-                <button class="btn btn-sm" style="background: rgba(234, 179, 8, 0.15); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.3); font-weight: 600; white-space: nowrap; flex-shrink: 0;" onclick="copyLinuxInstallCommand('${c.auth_token}')" title="Copiar comando Linux Bash para instalar neste PC">
+                <button class="btn btn-sm" style="background: rgba(234, 179, 8, 0.15); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.3); font-weight: 600; white-space: nowrap; flex-shrink: 0;" data-action="copy-linux-install" data-token="${escapeHtml(c.auth_token)}" title="Copiar comando Linux Bash para instalar neste PC">
                   🐧 Instalar
                 </button>
               ` : `
-                <button class="btn btn-sm" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-weight: 600; white-space: nowrap; flex-shrink: 0;" onclick="copyPsInstallCommand('${c.auth_token}')" title="Copiar comando PowerShell Admin para instalar neste PC">
+                <button class="btn btn-sm" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-weight: 600; white-space: nowrap; flex-shrink: 0;" data-action="copy-ps-install" data-token="${escapeHtml(c.auth_token)}" title="Copiar comando PowerShell Admin para instalar neste PC">
                   ⚡ Instalar
                 </button>
               `) : ''}
-              <button class="btn btn-secondary btn-sm" style="white-space: nowrap; flex-shrink: 0;" onclick="openEditClient('${c.ip}', '${escapeHtml(c.name)}', '${escapeHtml(c.comment)}', ${c.group_id || 1})">
+              <button class="btn btn-secondary btn-sm" style="white-space: nowrap; flex-shrink: 0;" data-action="open-edit-client" data-ip="${escapeHtml(c.ip)}" data-name="${escapeHtml(c.name)}" data-comment="${escapeHtml(c.comment || '')}" data-group-id="${Number(c.group_id) || 1}">
                 Editar
               </button>
               ${isRemote && !isRevoked ? `
-                <button class="btn btn-danger btn-sm" style="white-space: nowrap; flex-shrink: 0;" onclick="revokeRemoteClient('${c.auth_token}')">
+                <button class="btn btn-danger btn-sm" style="white-space: nowrap; flex-shrink: 0;" data-action="revoke-remote-client" data-token="${escapeHtml(c.auth_token)}">
                   Revogar
                 </button>
               ` : ''}
@@ -1471,6 +1472,110 @@ function escapeHtml(str) {
   }[m]));
 }
 
+function sanitizeColor(color, fallback = '#64748b') {
+  if (!color || typeof color !== 'string') return fallback;
+  const trimmed = color.trim();
+  if (/^(#[0-9a-fA-F]{3,8}|var\(--[a-zA-Z0-9-]+\)|inherit)$/.test(trimmed)) {
+    return trimmed;
+  }
+  return fallback;
+}
+
+function sanitizeIconClass(icon, fallback = 'fas fa-shield-alt') {
+  if (!icon || typeof icon !== 'string') return fallback;
+  const trimmed = icon.trim();
+  if (/^[a-zA-Z0-9_\s-]+$/.test(trimmed)) {
+    return trimmed;
+  }
+  return fallback;
+}
+
+function setupDelegatedActions() {
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-action]');
+    if (!el) return;
+    const action = el.dataset.action;
+    switch (action) {
+      case 'toggle-device-category':
+        toggleDeviceCategory(el.dataset.targetId);
+        break;
+      case 'toggle-group-device':
+        toggleGroupDeviceCard(el.dataset.targetId, el.dataset.devIdx);
+        break;
+      case 'quick-allow-domain':
+        quickAllowDomain(el.dataset.domain);
+        break;
+      case 'quick-block-domain':
+        quickBlockDomain(el.dataset.domain);
+        break;
+      case 'inspect-client-matrix':
+        inspectClientMatrix(el.dataset.clientIp);
+        break;
+      case 'copy-linux-install':
+        window.copyLinuxInstallCommand(el.dataset.token);
+        break;
+      case 'copy-ps-install':
+        window.copyPsInstallCommand(el.dataset.token);
+        break;
+      case 'open-edit-client':
+        openEditClient(el.dataset.ip, el.dataset.name, el.dataset.comment, parseInt(el.dataset.groupId, 10) || 1);
+        break;
+      case 'revoke-remote-client':
+        revokeRemoteClient(el.dataset.token);
+        break;
+      case 'toggle-category-action':
+        toggleCategoryAction(el.dataset.catId);
+        break;
+      case 'delete-ad-forwarder':
+        deleteAdForwarder(parseInt(el.dataset.id, 10));
+        break;
+      case 'edit-user':
+        window.editUserById(parseInt(el.dataset.id, 10));
+        break;
+      case 'delete-user':
+        window.deleteUserById(parseInt(el.dataset.id, 10), el.dataset.username);
+        break;
+      case 'open-policy-group':
+        window.openPolicyForGroup(parseInt(el.dataset.groupId, 10));
+        break;
+      case 'toggle-grid-hour':
+        window.toggleGridHour(parseInt(el.dataset.day, 10), parseInt(el.dataset.hour, 10));
+        break;
+      case 'toggle-policy-category':
+        window.togglePolicyCategoryAction(el.dataset.catId);
+        break;
+    }
+  });
+
+  document.addEventListener('change', (e) => {
+    const el = e.target.closest('[data-change-action]');
+    if (!el) return;
+    const action = el.dataset.changeAction;
+    switch (action) {
+      case 'update-group-count':
+        updateGroupSelectionCount();
+        break;
+      case 'toggle-app-rule':
+        window.toggleAppRule(el.dataset.appId, el.checked);
+        break;
+      case 'toggle-cat-master':
+        window.toggleCategoryMasterRule(el.dataset.catKey, el.checked);
+        break;
+    }
+  });
+
+  // Fallback CSP-safe para imagens de favicon que falharem no carregamento
+  document.addEventListener('error', (e) => {
+    const img = e.target;
+    if (img && img.classList && img.classList.contains('app-favicon-img')) {
+      img.style.display = 'none';
+      if (img.nextElementSibling) {
+        img.nextElementSibling.style.display = 'flex';
+      }
+    }
+  }, true);
+}
+
 function debounce(fn, delay) {
   let timer;
   return function(...args) {
@@ -1576,8 +1681,8 @@ function renderCategoryCards() {
     return `
       <div class="category-card ${isBlocked ? 'blocked' : 'allowed'}">
         <div class="category-info">
-          <div class="category-icon-box" style="background: ${cat.color}20; color: ${cat.color};">
-            <i class="${cat.icon || 'fas fa-shield-alt'}"></i>
+          <div class="category-icon-box" style="background: ${sanitizeColor(cat.color, '#3b82f6')}20; color: ${sanitizeColor(cat.color, '#3b82f6')};">
+            <i class="${sanitizeIconClass(cat.icon, 'fas fa-shield-alt')}"></i>
           </div>
           <div>
             <span class="category-text-title">${escapeHtml(cat.name)}</span>
@@ -1586,7 +1691,7 @@ function renderCategoryCards() {
         </div>
         <div>
           <button class="category-toggle-btn ${isBlocked ? 'btn-blocked' : 'btn-allowed'}" 
-                  onclick="toggleCategoryAction('${cat.id}')">
+                  data-action="toggle-category-action" data-cat-id="${escapeHtml(cat.id)}">
             ${isBlocked ? '🚫 Bloqueado' : '✅ Permitido'}
           </button>
         </div>
@@ -1677,7 +1782,7 @@ function renderAdForwarders() {
       <td><span class="text-muted">${escapeHtml(f.comment || 'Controlador de Domínio')}</span></td>
       <td><span class="badge-status online">Encaminhando</span></td>
       <td>
-        <button class="btn btn-danger btn-xs" onclick="deleteAdForwarder(${f.id})">Remover</button>
+        <button class="btn btn-danger btn-xs" data-action="delete-ad-forwarder" data-id="${Number(f.id) || 0}">Remover</button>
       </td>
     </tr>
   `).join('');
@@ -2130,6 +2235,10 @@ function setupUserControls() {
         alert('A senha é obrigatória para novos usuários.');
         return;
       }
+      if (password && password.length < 8) {
+        alert('A senha deve ter no mínimo 8 caracteres.');
+        return;
+      }
 
       // Coleta grupos marcados
       const checkedGroups = [];
@@ -2213,10 +2322,10 @@ async function openUserModal(user = null) {
       const isChecked = user && user.allowed_groups && user.allowed_groups.some(gid => gid == g.id);
       return `
         <label class="group-checkbox-item">
-          <input type="checkbox" value="${g.id}" ${isChecked ? 'checked' : ''} onchange="updateGroupSelectionCount()">
+          <input type="checkbox" value="${Number(g.id) || 0}" ${isChecked ? 'checked' : ''} data-change-action="update-group-count">
           <div class="group-checkbox-content">
             <span class="group-checkbox-name">
-              <span class="group-checkbox-color-dot" style="background: ${g.color};"></span>
+              <span class="group-checkbox-color-dot" style="background: ${sanitizeColor(g.color, '#64748b')};"></span>
               ${escapeHtml(g.name)}
             </span>
             <span class="tag-badge" style="font-size: 0.7rem; background: rgba(255,255,255,0.06);">${g.client_count || 0} dispositivos</span>
@@ -2292,7 +2401,7 @@ async function loadUsers() {
           const g = state.groups.find(group => group.id === gid);
           const name = g ? g.name : `Grupo #${gid}`;
           const color = g ? g.color : '#64748b';
-          return `<span class="group-pill"><span class="group-checkbox-color-dot" style="background: ${color};"></span>${escapeHtml(name)}</span>`;
+          return `<span class="group-pill"><span class="group-checkbox-color-dot" style="background: ${sanitizeColor(color, '#64748b')};"></span>${escapeHtml(name)}</span>`;
         }).join('');
       }
 
@@ -2308,9 +2417,9 @@ async function loadUsers() {
           <td><span class="text-dim">${createdDate}</span></td>
           <td style="text-align: right;">
             <div style="display: flex; gap: 0.35rem; justify-content: flex-end;">
-              <button class="btn btn-secondary btn-sm" onclick="editUserById(${u.id})">Editar</button>
+              <button class="btn btn-secondary btn-sm" data-action="edit-user" data-id="${Number(u.id) || 0}">Editar</button>
               ${canDelete ? `
-                <button class="btn btn-danger btn-sm" onclick="deleteUserById(${u.id}, '${escapeHtml(u.username)}')">Excluir</button>
+                <button class="btn btn-danger btn-sm" data-action="delete-user" data-id="${Number(u.id) || 0}" data-username="${escapeHtml(u.username)}">Excluir</button>
               ` : ''}
             </div>
           </td>
@@ -2434,8 +2543,9 @@ function getAppIconSvg(appId, name, color = '#3b82f6', domains = []) {
   const vectorSvg = icons[appId];
 
   // Se tivermos ícone vetorial nativo de alta fidelidade
+  const safeBg = sanitizeColor(color, '#3b82f6');
   if (vectorSvg) {
-    return `<div class="app-brand-icon" style="background: ${color};">${vectorSvg}</div>`;
+    return `<div class="app-brand-icon" style="background: ${safeBg};">${vectorSvg}</div>`;
   }
 
   // Se tiver domínio, carrega favicon oficial da empresa em alta resolução (64px) com fallback gracioso
@@ -2445,10 +2555,9 @@ function getAppIconSvg(appId, name, color = '#3b82f6', domains = []) {
   if (primaryDomain) {
     const faviconUrl = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(primaryDomain)}&sz=64`;
     return `
-      <div class="app-brand-icon" style="background: ${color}; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center;">
-        <img src="${faviconUrl}" alt="${escapeHtml(name)}" loading="lazy"
-             style="width: 18px; height: 18px; object-fit: contain; border-radius: 4px;"
-             onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />
+      <div class="app-brand-icon" style="background: ${safeBg}; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+        <img src="${faviconUrl}" alt="${escapeHtml(name)}" loading="lazy" class="app-favicon-img"
+             style="width: 18px; height: 18px; object-fit: contain; border-radius: 4px;" />
         <div style="display: none; align-items: center; justify-content: center; width: 100%; height: 100%;">
           ${fallbackHtml}
         </div>
@@ -2456,7 +2565,7 @@ function getAppIconSvg(appId, name, color = '#3b82f6', domains = []) {
     `;
   }
 
-  return `<div class="app-brand-icon" style="background: ${color}; font-size: 0.75rem;">${fallbackHtml}</div>`;
+  return `<div class="app-brand-icon" style="background: ${safeBg}; font-size: 0.75rem;">${fallbackHtml}</div>`;
 }
 
 // ==========================================================
@@ -2829,7 +2938,7 @@ async function loadDashboardGroupsSummary() {
       <div class="card" style="padding: 1rem; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02);">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
           <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <span class="group-dot" style="background: ${g.color}; width: 10px; height: 10px;"></span>
+            <span class="group-dot" style="background: ${sanitizeColor(g.color, '#64748b')}; width: 10px; height: 10px;"></span>
             <strong style="font-size: 0.88rem;">${escapeHtml(g.name)}</strong>
           </div>
           <span class="badge" style="background: rgba(255,255,255,0.06); font-size: 0.72rem;">${g.client_count} disp.</span>
@@ -2837,7 +2946,7 @@ async function loadDashboardGroupsSummary() {
         <div style="font-size: 0.78rem; color: var(--text-dim); margin-bottom: 0.65rem;">
           Consultas: <strong>${g.total_queries.toLocaleString()}</strong> | Bloqueadas: <strong style="color: #f87171;">${g.blocked_queries.toLocaleString()}</strong> (${g.block_rate}%)
         </div>
-        <button class="btn btn-secondary btn-sm" style="width: 100%; font-size: 0.76rem;" onclick="openPolicyForGroup(${g.id})">
+        <button class="btn btn-secondary btn-sm" style="width: 100%; font-size: 0.76rem;" data-action="open-policy-group" data-group-id="${Number(g.id) || 1}">
           ⚙️ Ajustar Aplicações &amp; Horário &rarr;
         </button>
       </div>
@@ -3084,7 +3193,7 @@ function renderPolicyCategoryCards() {
             <span class="app-brand-name" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
           </div>
           <label class="tactile-switch">
-            <input type="checkbox" ${isBlocked ? 'checked' : ''} onchange="toggleAppRule('${a.id}', this.checked)">
+            <input type="checkbox" ${isBlocked ? 'checked' : ''} data-change-action="toggle-app-rule" data-app-id="${escapeHtml(a.id)}">
             <span class="tactile-slider"></span>
           </label>
         </div>
@@ -3095,11 +3204,11 @@ function renderPolicyCategoryCards() {
       <div class="app-category-card">
         <div class="app-category-card-header">
           <div class="category-name-count">
-            <span>${label}</span>
+            <span>${escapeHtml(label)}</span>
             <span class="category-app-count-tag">(${apps.length})</span>
           </div>
           <label class="tactile-switch" title="Bloquear ou liberar toda a categoria">
-            <input type="checkbox" ${allBlocked ? 'checked' : ''} onchange="toggleCategoryMasterRule('${catKey}', this.checked)">
+            <input type="checkbox" ${allBlocked ? 'checked' : ''} data-change-action="toggle-cat-master" data-cat-key="${escapeHtml(catKey)}">
             <span class="tactile-slider"></span>
           </label>
         </div>
@@ -3224,13 +3333,13 @@ function renderWeeklyScheduleGrid() {
 
       let cellContent = '';
       if (isActive && slotInfo.isFirst) {
-        cellContent = `<div class="schedule-rendered-block">${slotInfo.start} - ${slotInfo.end}</div>`;
+        cellContent = `<div class="schedule-rendered-block">${escapeHtml(slotInfo.start)} - ${escapeHtml(slotInfo.end)}</div>`;
       }
 
       cellsHtml += `
         <td class="slot-cell ${isActive ? 'active-slot' : ''}" 
             data-day="${d}" data-hour="${h}" 
-            onclick="toggleGridHour(${d}, ${h})">
+            data-action="toggle-grid-hour">
           ${cellContent}
         </td>
       `;
@@ -3371,8 +3480,8 @@ async function loadPolicyCategories(groupId) {
     return `
       <div class="category-card ${isBlocked ? 'blocked' : 'allowed'}">
         <div class="category-info">
-          <div class="category-icon-box" style="background: ${cat.color}20; color: ${cat.color};">
-            <i class="${cat.icon || 'fas fa-shield-alt'}"></i>
+          <div class="category-icon-box" style="background: ${sanitizeColor(cat.color, '#3b82f6')}20; color: ${sanitizeColor(cat.color, '#3b82f6')};">
+            <i class="${sanitizeIconClass(cat.icon, 'fas fa-shield-alt')}"></i>
           </div>
           <div>
             <span class="category-text-title">${escapeHtml(cat.name)}</span>
@@ -3380,7 +3489,7 @@ async function loadPolicyCategories(groupId) {
           </div>
         </div>
         <button class="category-toggle-btn ${isBlocked ? 'btn-blocked' : 'btn-allowed'}" 
-                onclick="togglePolicyCategoryAction('${cat.id}')">
+                data-action="toggle-policy-category" data-cat-id="${escapeHtml(cat.id)}">
           ${isBlocked ? '🚫 Bloqueado' : '✅ Permitido'}
         </button>
       </div>
@@ -3418,7 +3527,7 @@ function loadPolicyGroupDevices(groupId) {
     <tr>
       <td>${c.is_remote ? '<span class="tag-badge allowed">Nuvem (DoH)</span>' : '<span class="tag-badge" style="background:rgba(56,189,248,0.15); color:var(--accent-blue)">Wi-Fi Local</span>'}</td>
       <td><strong>${escapeHtml(c.name)}</strong></td>
-      <td><code>${c.ip}</code></td>
+      <td><code>${escapeHtml(c.ip)}</code></td>
       <td><span class="badge-status ${c.status === 'revoked' ? 'offline' : 'online'}">${c.status === 'revoked' ? 'Revogado' : 'Ativo'}</span></td>
       <td>${escapeHtml(c.comment || '-')}</td>
     </tr>

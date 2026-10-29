@@ -1081,8 +1081,22 @@ let currentSessionUser = null;
     return res.end(JSON.stringify(mockBlocklists));
   }
 
-  // Arquivos estáticos
-  let filePath = path.join(STATIC_DIR, pathname === '/' ? 'index.html' : pathname);
+  // Arquivos estáticos (com validação contra Path Traversal)
+  const safeRoot = path.resolve(STATIC_DIR);
+  let decodedPathname = '/';
+  try {
+    decodedPathname = decodeURIComponent(pathname || '/');
+  } catch (_) {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    return res.end('400 Bad Request');
+  }
+  const relTarget = decodedPathname === '/' ? 'index.html' : decodedPathname.replace(/^[/\\]+/, '');
+  const filePath = path.resolve(safeRoot, relTarget);
+  if (filePath !== safeRoot && !filePath.startsWith(safeRoot + path.sep)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' });
+    return res.end('403 Forbidden');
+  }
+
   const ext = path.extname(filePath);
   const mimeTypes = {
     '.html': 'text/html',
@@ -1103,7 +1117,7 @@ let currentSessionUser = null;
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`[CoorpDNS Mock Server] Rodando em http://localhost:${PORT}`);
+server.listen(PORT, '127.0.0.1', () => {
+  console.log(`[CoorpDNS Mock Server] Rodando em http://127.0.0.1:${PORT}`);
 });
 

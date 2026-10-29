@@ -10,24 +10,22 @@ import (
 	"github.com/coorpdns/coorpdns/internal/storage"
 )
 
-func (s *Server) getAuthUser(r *http.Request) *storage.UserWithGroups {
-	// 1. Tenta obter do Cookie seguro
-	var token string
+func (s *Server) extractSessionToken(r *http.Request) (token string, fromCookie bool) {
+	// 1. Tenta obter do Cookie HttpOnly
 	if cookie, err := r.Cookie("coorpdns_session"); err == nil && cookie != nil && cookie.Value != "" {
-		token = cookie.Value
+		return strings.TrimSpace(cookie.Value), true
 	}
 	// 2. Tenta obter do cabeçalho Authorization: Bearer <token>
-	if token == "" {
-		authHeader := r.Header.Get("Authorization")
-		if strings.HasPrefix(authHeader, "Bearer ") {
-			token = strings.TrimPrefix(authHeader, "Bearer ")
-		}
+	authHeader := r.Header.Get("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		return strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer ")), false
 	}
-	// 3. Tenta obter da query string (?session=...)
-	if token == "" {
-		token = r.URL.Query().Get("session")
-	}
+	// Nota de Segurança: tokens de sessão na query string (?session=...) são proibidos para evitar vazamento em logs/Referer
+	return "", false
+}
 
+func (s *Server) getAuthUser(r *http.Request) *storage.UserWithGroups {
+	token, _ := s.extractSessionToken(r)
 	if token == "" {
 		return nil
 	}
@@ -71,13 +69,14 @@ func containsInt64(slice []int64, val int64) bool {
 
 // POST /api/v1/auth/login
 func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
+	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	clientIP := getRealClientIP(r)
-	if s.loginLimiter != nil && !s.loginLimiter.Allow(clientIP) {
+	clientIP := s.clientIP(r)
+	ipKey := "ip:" + clientIP
+	if s.loginLimiter != nil && !s.loginLimiter.Allow(ipKey) {
 		http.Error(w, "Muitas tentativas de login incorretas. Por segurança, aguarde 5 minutos antes de tentar novamente.", http.StatusTooManyRequests)
 		return
 	}
@@ -91,28 +90,44 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	normUser := strings.ToLower(strings.TrimSpace(req.Username))
+	userKey := ""
+	if normUser != "" {
+		userKey = "user:" + normUser
+		if s.loginLimiter != nil && !s.loginLimiter.Allow(userKey) {
+			http.Error(w, "Conta temporariamente protegida contra força bruta. Aguarde 5 minutos antes de tentar novamente.", http.StatusTooManyRequests)
+			return
+		}
+	}
+
 	user, err := s.storage.AuthenticateUser(req.Username, req.Password)
 	if err != nil {
 		if s.loginLimiter != nil {
-			s.loginLimiter.RecordFailedAttempt(clientIP)
+			s.loginLimiter.RecordFailedAttempt(ipKey)
+			if userKey != "" {
+				s.loginLimiter.RecordFailedAttempt(userKey)
+			}
 		}
-		http.Error(w, err.Error(), http.StatusUnauthorized)
+		http.Error(w, "Usuário ou senha incorretos", http.StatusUnauthorized)
 		return
 	}
 
 	if s.loginLimiter != nil {
-		s.loginLimiter.Reset(clientIP)
+		s.loginLimiter.Reset(ipKey)
+		if userKey != "" {
+			s.loginLimiter.Reset(userKey)
+		}
 	}
 
 	token, err := s.storage.CreateSession(user.ID, 30*time.Minute)
 	if err != nil {
-		http.Error(w, "Erro ao criar sessão: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Erro interno ao iniciar sessão", http.StatusInternalServerError)
 		return
 	}
 
-	isSecure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-	// Cookie de Sessão: MaxAge e Expires não são definidos para que o navegador
-	// destrua o cookie da memória ao fechar o navegador/janela
+	user.DefaultPasswordActive = s.storage.IsUsingDefaultPassword(user.ID)
+	isSecure := s.isSecure(r)
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     "coorpdns_session",
 		Value:    token,
@@ -130,13 +145,17 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/v1/auth/logout
 func (s *Server) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
+	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Remove cookie
-	isSecure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	token, _ := s.extractSessionToken(r)
+	if token != "" {
+		_ = s.storage.DeleteSession(token)
+	}
+
+	isSecure := s.isSecure(r)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "coorpdns_session",
 		Value:    "",
@@ -147,21 +166,6 @@ func (s *Server) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   -1,
 	})
 
-	// Deleta do banco
-	token := ""
-	if cookie, err := r.Cookie("coorpdns_session"); err == nil && cookie != nil && cookie.Value != "" {
-		token = cookie.Value
-	}
-	if token == "" {
-		authHeader := r.Header.Get("Authorization")
-		if strings.HasPrefix(authHeader, "Bearer ") {
-			token = strings.TrimPrefix(authHeader, "Bearer ")
-		}
-	}
-	if token != "" {
-		s.storage.DeleteSession(token)
-	}
-
 	jsonResponse(w, http.StatusOK, map[string]string{
 		"message": "Sessão finalizada com sucesso",
 	})
@@ -169,16 +173,26 @@ func (s *Server) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/v1/auth/me
 func (s *Server) handleAuthMe(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	u := s.getAuthUser(r)
 	if u == nil {
 		http.Error(w, "Não autenticado", http.StatusUnauthorized)
 		return
 	}
+	u.DefaultPasswordActive = s.storage.IsUsingDefaultPassword(u.ID)
 	jsonResponse(w, http.StatusOK, u)
 }
 
-// POST /api/v1/auth/change-password
+// POST /api/v1/auth/password
 func (s *Server) handleAuthChangePassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	u := s.requireAuth(w, r)
 	if u == nil {
 		return
@@ -193,7 +207,13 @@ func (s *Server) handleAuthChangePassword(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := s.storage.ChangePassword(u.ID, req.OldPassword, req.NewPassword); err != nil {
+	if len(req.NewPassword) < 8 {
+		http.Error(w, "A nova senha deve possuir no mínimo 8 caracteres", http.StatusBadRequest)
+		return
+	}
+
+	currToken, _ := s.extractSessionToken(r)
+	if err := s.storage.ChangePassword(u.ID, req.OldPassword, req.NewPassword, currToken); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -209,15 +229,15 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch r.Method {
-	case "GET":
+	case http.MethodGet:
 		users, err := s.storage.ListUsers()
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, "Erro ao listar usuários", http.StatusInternalServerError)
 			return
 		}
 		jsonResponse(w, http.StatusOK, users)
 
-	case "POST":
+	case http.MethodPost:
 		var req struct {
 			Username string  `json:"username"`
 			Password string  `json:"password"`
@@ -232,12 +252,12 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 
 		req.Username = strings.TrimSpace(req.Username)
 		req.FullName = strings.TrimSpace(req.FullName)
-		if len(req.Username) < 3 {
-			http.Error(w, "O nome de usuário deve possuir no mínimo 3 caracteres", http.StatusBadRequest)
+		if len(req.Username) < 3 || len(req.Username) > 64 {
+			http.Error(w, "O nome de usuário deve possuir entre 3 e 64 caracteres", http.StatusBadRequest)
 			return
 		}
-		if len(req.Password) < 6 {
-			http.Error(w, "A senha deve possuir no mínimo 6 caracteres para segurança corporativa", http.StatusBadRequest)
+		if len(req.Password) < 8 {
+			http.Error(w, "A senha deve possuir no mínimo 8 caracteres para segurança corporativa", http.StatusBadRequest)
 			return
 		}
 		if req.Role != "admin" && req.Role != "operator" {
@@ -271,7 +291,7 @@ func (s *Server) handleUserItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch r.Method {
-	case "PUT":
+	case http.MethodPut:
 		var req struct {
 			Username string  `json:"username"`
 			Password string  `json:"password"`
@@ -286,12 +306,12 @@ func (s *Server) handleUserItem(w http.ResponseWriter, r *http.Request) {
 
 		req.Username = strings.TrimSpace(req.Username)
 		req.FullName = strings.TrimSpace(req.FullName)
-		if req.Username != "" && len(req.Username) < 3 {
-			http.Error(w, "O nome de usuário deve possuir no mínimo 3 caracteres", http.StatusBadRequest)
+		if req.Username != "" && (len(req.Username) < 3 || len(req.Username) > 64) {
+			http.Error(w, "O nome de usuário deve possuir entre 3 e 64 caracteres", http.StatusBadRequest)
 			return
 		}
-		if req.Password != "" && len(req.Password) < 6 {
-			http.Error(w, "A nova senha deve possuir no mínimo 6 caracteres para segurança corporativa", http.StatusBadRequest)
+		if req.Password != "" && len(req.Password) < 8 {
+			http.Error(w, "A nova senha deve possuir no mínimo 8 caracteres para segurança corporativa", http.StatusBadRequest)
 			return
 		}
 
@@ -302,7 +322,7 @@ func (s *Server) handleUserItem(w http.ResponseWriter, r *http.Request) {
 		updated, _ := s.storage.GetUserByID(id)
 		jsonResponse(w, http.StatusOK, updated)
 
-	case "DELETE":
+	case http.MethodDelete:
 		if id == admin.ID {
 			http.Error(w, "Você não pode excluir sua própria conta de administrador em uso.", http.StatusBadRequest)
 			return

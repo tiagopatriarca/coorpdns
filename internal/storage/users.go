@@ -27,7 +27,8 @@ type User struct {
 // UserWithGroups estende o usuário com os IDs dos grupos permitidos
 type UserWithGroups struct {
 	User
-	AllowedGroups []int64 `json:"allowed_groups"`
+	AllowedGroups         []int64 `json:"allowed_groups"`
+	DefaultPasswordActive bool    `json:"default_password_active,omitempty"`
 }
 
 // Session representa uma sessão ativa com token criptográfico
@@ -39,9 +40,14 @@ type Session struct {
 }
 
 const (
-	pbkdf2Iterations = 50000
+	pbkdf2Iterations = 210000
 	pbkdf2KeyLen     = 32
 )
+
+func hashSessionToken(rawToken string) string {
+	sum := sha256.Sum256([]byte(rawToken))
+	return "sha256$" + hex.EncodeToString(sum[:])
+}
 
 // pbkdf2SHA256 implementa RFC 2898 PBKDF2 com HMAC-SHA256
 func pbkdf2SHA256(password, salt []byte, iter, keyLen int) []byte {
@@ -77,12 +83,11 @@ func pbkdf2SHA256(password, salt []byte, iter, keyLen int) []byte {
 	return dk[:keyLen]
 }
 
-// HashPassword gera um hash robusto com PBKDF2 (HMAC-SHA256, 50k iterações) e salt criptográfico
+// HashPassword gera um hash robusto com PBKDF2 (HMAC-SHA256, 210k iterações) e salt criptográfico
 func HashPassword(password string) string {
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
-		// Fallback de emergência em caso improvável de erro no CSPRNG
-		salt = []byte("coorpdns_sec_salt")
+		panic("falha crítica no gerador criptográfico CSPRNG: " + err.Error())
 	}
 	dk := pbkdf2SHA256([]byte(password), salt, pbkdf2Iterations, pbkdf2KeyLen)
 	return fmt.Sprintf("pbkdf2$%d$%x$%x", pbkdf2Iterations, salt, dk)
@@ -197,8 +202,8 @@ func (d *DB) AuthenticateUser(username, password string) (*UserWithGroups, error
 		return nil, errors.New("usuário ou senha incorretos")
 	}
 
-	// Migração transparente de hash legado para PBKDF2 robusto
-	if !strings.HasPrefix(hash, "pbkdf2$") {
+	// Migração transparente de hash legado ou com menos iterações para PBKDF2 atual
+	if !strings.HasPrefix(hash, fmt.Sprintf("pbkdf2$%d$", pbkdf2Iterations)) {
 		newHash := HashPassword(password)
 		d.db.Exec("UPDATE users SET password_hash = ? WHERE id = ?", newHash, u.ID)
 	}
@@ -213,36 +218,38 @@ func (d *DB) AuthenticateUser(username, password string) (*UserWithGroups, error
 	return &u, nil
 }
 
-// CreateSession cria um token de sessão com expiração de inatividade (padrão 30 minutos)
+// CreateSession cria um token de sessão criptográfico armazenando apenas seu hash SHA-256 no banco
 func (d *DB) CreateSession(userID int64, duration time.Duration) (string, error) {
 	if duration <= 0 {
 		duration = 30 * time.Minute
 	}
-	tokenBytes := make([]byte, 24)
+	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		return "", err
 	}
 	token := "ses_" + hex.EncodeToString(tokenBytes)
+	tokenHash := hashSessionToken(token)
 	now := time.Now().UTC()
 	expiresAt := now.Add(duration)
 
-	// Remove sessões expiradas antes de criar uma nova
-	d.db.Exec("DELETE FROM sessions WHERE expires_at < ?", now)
+	// Remove sessões expiradas ou legadas em texto claro antes de criar uma nova
+	d.db.Exec("DELETE FROM sessions WHERE expires_at < ? OR token NOT LIKE 'sha256$%'", now)
 
 	query := "INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)"
-	_, err := d.db.Exec(query, token, userID, expiresAt)
+	_, err := d.db.Exec(query, tokenHash, userID, expiresAt)
 	if err != nil {
 		return "", err
 	}
 	return token, nil
 }
 
-// ValidateSession verifica se um token de sessão é válido e renova a expiração por inatividade (sliding session)
+// ValidateSession verifica se um token de sessão é válido (comparando por hash SHA-256) e renova a expiração
 func (d *DB) ValidateSession(token string) (*UserWithGroups, error) {
-	if token == "" {
-		return nil, errors.New("token ausente")
+	if token == "" || !strings.HasPrefix(token, "ses_") {
+		return nil, errors.New("token ausente ou inválido")
 	}
 
+	tokenHash := hashSessionToken(token)
 	query := `
 		SELECT u.id, u.username, u.full_name, u.role, u.created_at, u.updated_at, s.expires_at
 		FROM sessions s
@@ -251,7 +258,7 @@ func (d *DB) ValidateSession(token string) (*UserWithGroups, error) {
 	`
 	var u UserWithGroups
 	var expiresAt time.Time
-	err := d.db.QueryRow(query, token).Scan(&u.ID, &u.Username, &u.FullName, &u.Role, &u.CreatedAt, &u.UpdatedAt, &expiresAt)
+	err := d.db.QueryRow(query, tokenHash).Scan(&u.ID, &u.Username, &u.FullName, &u.Role, &u.CreatedAt, &u.UpdatedAt, &expiresAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, errors.New("sessão inválida")
@@ -262,14 +269,14 @@ func (d *DB) ValidateSession(token string) (*UserWithGroups, error) {
 	now := time.Now().UTC()
 	// Verifica se a sessão expirou
 	if now.After(expiresAt) {
-		d.db.Exec("DELETE FROM sessions WHERE token = ?", token)
+		d.db.Exec("DELETE FROM sessions WHERE token = ?", tokenHash)
 		return nil, errors.New("sessão expirada por inatividade")
 	}
 
 	// Sliding Session: se o usuário estiver ativo e faltarem menos de 25 minutos, renova por mais 30 minutos
 	if expiresAt.Sub(now) < 25*time.Minute {
 		newExpires := now.Add(30 * time.Minute)
-		d.db.Exec("UPDATE sessions SET expires_at = ? WHERE token = ?", newExpires, token)
+		d.db.Exec("UPDATE sessions SET expires_at = ? WHERE token = ?", newExpires, tokenHash)
 	}
 
 	groups, err := d.GetUserGroupIDs(u.ID, u.Role)
@@ -283,8 +290,35 @@ func (d *DB) ValidateSession(token string) (*UserWithGroups, error) {
 
 // DeleteSession remove o token de sessão (logout)
 func (d *DB) DeleteSession(token string) error {
-	_, err := d.db.Exec("DELETE FROM sessions WHERE token = ?", token)
+	if token == "" {
+		return nil
+	}
+	tokenHash := hashSessionToken(token)
+	_, err := d.db.Exec("DELETE FROM sessions WHERE token = ? OR token = ?", tokenHash, token)
 	return err
+}
+
+// DeleteUserSessions revoga todas as sessões ativas de um usuário (exceto opcionalmente uma sessão atual)
+func (d *DB) DeleteUserSessions(userID int64, keepRawToken string) error {
+	if keepRawToken != "" {
+		keepHash := hashSessionToken(keepRawToken)
+		_, err := d.db.Exec("DELETE FROM sessions WHERE user_id = ? AND token != ?", userID, keepHash)
+		return err
+	}
+	_, err := d.db.Exec("DELETE FROM sessions WHERE user_id = ?", userID)
+	return err
+}
+
+// IsUsingDefaultPassword verifica se a conta admin ainda utiliza a credencial padrão de fábrica
+func (d *DB) IsUsingDefaultPassword(userID int64) bool {
+	var username, storedHash string
+	if err := d.db.QueryRow("SELECT username, password_hash FROM users WHERE id = ?", userID).Scan(&username, &storedHash); err != nil {
+		return false
+	}
+	if username != "admin" {
+		return false
+	}
+	return CheckPassword("admin", storedHash)
 }
 
 // GetUserGroupIDs retorna a lista de IDs dos grupos aos quais o usuário tem acesso
@@ -441,6 +475,10 @@ func (d *DB) UpdateUser(id int64, username, password, fullName, role string, gro
 		hash := HashPassword(password)
 		_, err = tx.Exec("UPDATE users SET username = ?, password_hash = ?, full_name = ?, role = ?, updated_at = datetime('now') WHERE id = ?",
 			username, hash, fullName, role, id)
+		if err == nil {
+			// Revoga sessões existentes caso a senha tenha sido redefinida pelo admin
+			tx.Exec("DELETE FROM sessions WHERE user_id = ?", id)
+		}
 	} else {
 		_, err = tx.Exec("UPDATE users SET username = ?, full_name = ?, role = ?, updated_at = datetime('now') WHERE id = ?",
 			username, fullName, role, id)
@@ -475,10 +513,10 @@ func (d *DB) DeleteUser(id int64) error {
 	return err
 }
 
-// ChangePassword permite ao usuário alterar sua própria senha
-func (d *DB) ChangePassword(userID int64, oldPassword, newPassword string) error {
-	if newPassword == "" {
-		return errors.New("a nova senha não pode ser vazia")
+// ChangePassword permite ao usuário alterar sua própria senha e revoga outras sessões ativas
+func (d *DB) ChangePassword(userID int64, oldPassword, newPassword string, keepRawToken ...string) error {
+	if len(newPassword) < 8 {
+		return errors.New("a nova senha deve possuir no mínimo 8 caracteres")
 	}
 
 	var storedHash string
@@ -492,8 +530,16 @@ func (d *DB) ChangePassword(userID int64, oldPassword, newPassword string) error
 	}
 
 	newHash := HashPassword(newPassword)
-	_, err = d.db.Exec("UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?", newHash, userID)
-	return err
+	if _, err := d.db.Exec("UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?", newHash, userID); err != nil {
+		return err
+	}
+
+	keep := ""
+	if len(keepRawToken) > 0 {
+		keep = keepRawToken[0]
+	}
+	_ = d.DeleteUserSessions(userID, keep)
+	return nil
 }
 
 // buildGroupFilterClause gera uma cláusula IN (?) para filtrar IDs de grupos

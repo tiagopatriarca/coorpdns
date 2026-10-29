@@ -26,7 +26,7 @@ type AdapterInfo struct {
 type DNSMonitor struct {
 	mu                sync.Mutex
 	fallbackSetter    func(string)
-	monitoredAdapters map[string]bool
+	monitoredAdapters map[string]uint32
 	ticker            *time.Ticker
 	stopChan          chan struct{}
 }
@@ -34,7 +34,7 @@ type DNSMonitor struct {
 func NewDNSMonitor(fallbackSetter func(string)) *DNSMonitor {
 	return &DNSMonitor{
 		fallbackSetter:    fallbackSetter,
-		monitoredAdapters: make(map[string]bool),
+		monitoredAdapters: make(map[string]uint32),
 		stopChan:          make(chan struct{}),
 	}
 }
@@ -85,7 +85,7 @@ func (m *DNSMonitor) checkAndEnforce() {
 	defer m.mu.Unlock()
 
 	for _, a := range adapters {
-		m.monitoredAdapters[a.Name] = true
+		m.monitoredAdapters[a.Name] = a.IfIndex
 
 		needsEnforcement := false
 		if len(a.DNSServers) == 0 {
@@ -136,11 +136,12 @@ func (m *DNSMonitor) restoreAdapters() {
 	}
 
 	log.Println("[DNS-MONITOR] 🔄 Encerramento detectado. Restaurando adaptadores para DHCP automático...")
-	for name := range m.monitoredAdapters {
+	for name, ifIndex := range m.monitoredAdapters {
 		cmd := exec.Command("netsh", "interface", "ipv4", "set", "dnsservers", fmt.Sprintf("name=%s", name), "source=dhcp")
 		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 		if err := cmd.Run(); err != nil {
-			psCmd := fmt.Sprintf("Set-DnsClientServerAddress -InterfaceAlias '%s' -ResetServerAddresses -ErrorAction SilentlyContinue", name)
+			// Utiliza InterfaceIndex numérico tipado para eliminar risco de injeção em comandos PowerShell como SYSTEM
+			psCmd := fmt.Sprintf("Set-DnsClientServerAddress -InterfaceIndex %d -ResetServerAddresses -ErrorAction SilentlyContinue", ifIndex)
 			pCmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", psCmd)
 			pCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 			pCmd.Run()
