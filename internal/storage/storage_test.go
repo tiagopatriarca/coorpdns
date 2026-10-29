@@ -65,4 +65,13 @@ func TestGroupDomainsAndAuditStorage(t *testing.T) {
 	if len(stats) != 0 {
 		t.Fatalf("Esperava 0 grupos com dispositivos cadastrados, obteve %d", len(stats))
 	}
+
+	// 4. Testar GetGroupReport com fatias de categorias e apps inicializadas
+	rep, err := db.GetGroupReport(1, 7, 50)
+	if err != nil {
+		t.Fatalf("Erro ao buscar relatório de grupo: %v", err)
+	}
+	if rep.CategoriesStats == nil || rep.ApplicationsStats == nil {
+		t.Fatalf("CategoriesStats ou ApplicationsStats não devem ser nil")
+	}
 }

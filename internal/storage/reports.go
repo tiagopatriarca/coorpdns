@@ -424,19 +424,41 @@ type GroupDeviceActivity struct {
 	Categories     []*GroupDeviceCategorySummary `json:"categories"`
 }
 
+type GroupCategoryStat struct {
+	ID           string  `json:"id"`
+	Name         string  `json:"name"`
+	Icon         string  `json:"icon"`
+	Color        string  `json:"color"`
+	TotalQueries int64   `json:"total_queries"`
+	Blocked      int64   `json:"blocked"`
+	Percentage   float64 `json:"percentage"`
+}
+
+type GroupApplicationStat struct {
+	ID           string  `json:"id"`
+	Name         string  `json:"name"`
+	Category     string  `json:"category"`
+	Color        string  `json:"color"`
+	TotalQueries int64   `json:"total_queries"`
+	Blocked      int64   `json:"blocked"`
+	Percentage   float64 `json:"percentage"`
+}
+
 type GroupReportResult struct {
-	GroupID        int64                 `json:"group_id"`
-	GroupName      string                `json:"group_name"`
-	GroupColor     string                `json:"group_color"`
-	Description    string                `json:"description"`
-	Days           int                   `json:"days"`
-	FromDate       string                `json:"from_date"`
-	ToDate         string                `json:"to_date"`
-	TotalQueries   int64                 `json:"total_queries"`
-	BlockedQueries int64                 `json:"blocked_queries"`
-	BlockRate      float64               `json:"block_rate"`
-	DevicesCount   int                   `json:"devices_count"`
-	Devices        []GroupDeviceActivity `json:"devices"`
+	GroupID           int64                  `json:"group_id"`
+	GroupName         string                 `json:"group_name"`
+	GroupColor        string                 `json:"group_color"`
+	Description       string                 `json:"description"`
+	Days              int                    `json:"days"`
+	FromDate          string                 `json:"from_date"`
+	ToDate            string                 `json:"to_date"`
+	TotalQueries      int64                  `json:"total_queries"`
+	BlockedQueries    int64                  `json:"blocked_queries"`
+	BlockRate         float64                `json:"block_rate"`
+	DevicesCount      int                    `json:"devices_count"`
+	Devices           []GroupDeviceActivity  `json:"devices"`
+	CategoriesStats   []GroupCategoryStat    `json:"categories_stats"`
+	ApplicationsStats []GroupApplicationStat `json:"applications_stats"`
 }
 
 func (d *DB) GetGroupReportFiltered(groupID int64, days int, maxDomainsPerDevice int, allowedGroupIDs []int64) (*GroupReportResult, error) {
@@ -468,14 +490,19 @@ func (d *DB) GetGroupReport(groupID int64, days int, maxDomainsPerDevice int) (*
 	// 1. Busca dados do grupo
 	groupRow := d.db.QueryRow("SELECT id, name, COALESCE(description, ''), color FROM client_groups WHERE id = ?", groupID)
 	result := &GroupReportResult{
-		Days:     days,
-		FromDate: cutoffDate,
-		ToDate:   todayDate,
-		Devices:  []GroupDeviceActivity{},
+		Days:              days,
+		FromDate:          cutoffDate,
+		ToDate:            todayDate,
+		Devices:           []GroupDeviceActivity{},
+		CategoriesStats:   []GroupCategoryStat{},
+		ApplicationsStats: []GroupApplicationStat{},
 	}
 	if err := groupRow.Scan(&result.GroupID, &result.GroupName, &result.Description, &result.GroupColor); err != nil {
 		return nil, fmt.Errorf("grupo não encontrado: %w", err)
 	}
+
+	groupCatMap := make(map[string]*GroupCategoryStat)
+	groupAppMap := make(map[string]*GroupApplicationStat)
 
 	// 2. Busca todos os dispositivos que pertencem a este grupo
 	clientRows, err := d.db.Query("SELECT ip, name, is_remote, COALESCE(os_type, 'windows') FROM clients WHERE group_id = ? AND status = 'active' ORDER BY name ASC", groupID)
@@ -552,6 +579,48 @@ func (d *DB) GetGroupReport(groupID int64, days int, maxDomainsPerDevice int) (*
 					dev.BlockedQueries += it.BlockedQueries
 					dev.Domains = append(dev.Domains, it)
 
+					// Agrega estatísticas globais de categorias do grupo
+					cStat, cExists := groupCatMap[catID]
+					if !cExists {
+						cStat = &GroupCategoryStat{
+							ID:    catID,
+							Name:  catName,
+							Icon:  icon,
+							Color: color,
+						}
+						groupCatMap[catID] = cStat
+					}
+					cStat.TotalQueries += it.TotalQueries
+					cStat.Blocked += it.BlockedQueries
+
+					// Agrega estatísticas de aplicativos conhecidos
+					appID := filter.DetectApplication(it.Domain)
+					if appID != "" {
+						aStat, aExists := groupAppMap[appID]
+						if !aExists {
+							appName := appID
+							appCat := "app"
+							appColor := "#3b82f6"
+							for _, app := range filter.AvailableApplications {
+								if app.ID == appID {
+									appName = app.Name
+									appCat = app.Category
+									appColor = app.Color
+									break
+								}
+							}
+							aStat = &GroupApplicationStat{
+								ID:       appID,
+								Name:     appName,
+								Category: appCat,
+								Color:    appColor,
+							}
+							groupAppMap[appID] = aStat
+						}
+						aStat.TotalQueries += it.TotalQueries
+						aStat.Blocked += it.BlockedQueries
+					}
+
 					cSummary, exists := catMap[catID]
 					if !exists {
 						cSummary = &GroupDeviceCategorySummary{
@@ -605,6 +674,38 @@ func (d *DB) GetGroupReport(groupID int64, days int, maxDomainsPerDevice int) (*
 	if result.TotalQueries > 0 {
 		result.BlockRate = float64(result.BlockedQueries) / float64(result.TotalQueries) * 100.0
 	}
+
+	// 4. Consolida Top Categorias para os gráficos do relatório
+	var catStats []GroupCategoryStat
+	for _, cs := range groupCatMap {
+		if result.TotalQueries > 0 {
+			cs.Percentage = (float64(cs.TotalQueries) / float64(result.TotalQueries)) * 100.0
+		}
+		catStats = append(catStats, *cs)
+	}
+	sort.Slice(catStats, func(i, j int) bool {
+		return catStats[i].TotalQueries > catStats[j].TotalQueries
+	})
+	if len(catStats) > 6 {
+		catStats = catStats[:6]
+	}
+	result.CategoriesStats = catStats
+
+	// 5. Consolida Top Aplicativos para os gráficos do relatório
+	var appStats []GroupApplicationStat
+	for _, as := range groupAppMap {
+		if result.TotalQueries > 0 {
+			as.Percentage = (float64(as.TotalQueries) / float64(result.TotalQueries)) * 100.0
+		}
+		appStats = append(appStats, *as)
+	}
+	sort.Slice(appStats, func(i, j int) bool {
+		return appStats[i].TotalQueries > appStats[j].TotalQueries
+	})
+	if len(appStats) > 6 {
+		appStats = appStats[:6]
+	}
+	result.ApplicationsStats = appStats
 
 	return result, nil
 }

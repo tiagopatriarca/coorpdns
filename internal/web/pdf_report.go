@@ -97,9 +97,204 @@ func GenerateGroupReportPDF(report *storage.GroupReportResult, days int) ([]byte
 	drawMetricCard(startX+(cardW+3)*2, "Acessos Bloqueados", fmt.Sprintf("%d", report.BlockedQueries), 239, 68, 68)
 	drawMetricCard(startX+(cardW+3)*3, "Dispositivos Ativos", fmt.Sprintf("%d", report.DevicesCount), 59, 130, 246)
 
-	pdf.SetY(currentY + cardH + 6)
+	pdf.SetY(currentY + cardH + 5)
 
-	// 2. CORPO: Por Máquina (Nome da máquina -> Categoria -> Site -> Acessos -> Bloqueado ou Não)
+	// 2. RESUMO GRÁFICO: Gráfico de Categorias e Gráfico de Aplicativos (Gráficos de Barras com Ícones e Nomes)
+	chartSectionY := pdf.GetY()
+	colW := 92.0
+	colH := 62.0
+
+	// Card 1: Gráfico de Barras por Categoria (Coluna Esquerda)
+	pdf.SetFillColor(248, 250, 252)
+	pdf.SetDrawColor(226, 232, 240)
+	pdf.RoundedRect(10, chartSectionY, colW, colH, 2, "1234", "FD")
+
+	pdf.SetXY(13, chartSectionY+3)
+	pdf.SetFont("Helvetica", "B", 8.5)
+	pdf.SetTextColor(15, 23, 42)
+	pdf.CellFormat(colW-6, 5, latin("TOP CATEGORIAS MAIS ACESSADAS"), "", 1, "L", false, 0, "")
+
+	if len(report.CategoriesStats) == 0 {
+		pdf.SetXY(13, chartSectionY+25)
+		pdf.SetFont("Helvetica", "I", 8)
+		pdf.SetTextColor(148, 163, 184)
+		pdf.CellFormat(colW-6, 6, latin("Nenhuma consulta por categoria registrada."), "", 0, "C", false, 0, "")
+	} else {
+		var maxCatQueries int64 = 1
+		for _, c := range report.CategoriesStats {
+			if c.TotalQueries > maxCatQueries {
+				maxCatQueries = c.TotalQueries
+			}
+		}
+
+		itemStartY := chartSectionY + 9.0
+		for i, cat := range report.CategoriesStats {
+			if i >= 5 {
+				break
+			}
+			rowY := itemStartY + float64(i)*10.0
+			cr, cg, cb := parseHexColor(cat.Color)
+
+			// Badge com ícone/símbolo da categoria
+			pdf.SetFillColor(cr, cg, cb)
+			pdf.RoundedRect(13, rowY, 5, 5, 1.2, "1234", "F")
+			pdf.SetTextColor(255, 255, 255)
+			sym := getCategorySymbol(cat.ID)
+			if len(sym) >= 2 {
+				pdf.SetFont("Helvetica", "B", 4.5)
+			} else {
+				pdf.SetFont("Helvetica", "B", 6)
+			}
+			pdf.SetXY(13, rowY+0.6)
+			pdf.CellFormat(5, 4.2, sym, "", 0, "C", false, 0, "")
+
+			// Nome da Categoria
+			catNameDisplay := cat.Name
+			if len(catNameDisplay) > 23 {
+				catNameDisplay = catNameDisplay[:21] + ".."
+			}
+			pdf.SetXY(19, rowY)
+			pdf.SetFont("Helvetica", "B", 7.5)
+			pdf.SetTextColor(30, 41, 59)
+			pdf.CellFormat(46, 5, latin(catNameDisplay), "", 0, "L", false, 0, "")
+
+			// Total e Porcentagem
+			pdf.SetXY(65, rowY)
+			pdf.SetFont("Helvetica", "", 7)
+			pdf.SetTextColor(100, 116, 139)
+			catCountStr := fmt.Sprintf("%d (%.1f%%)", cat.TotalQueries, cat.Percentage)
+			pdf.CellFormat(34, 5, latin(catCountStr), "", 0, "R", false, 0, "")
+
+			// Barra de Progresso
+			barX := 19.0
+			barY := rowY + 5.2
+			barMaxW := 80.0
+			barH := 2.8
+
+			// Trilha vazia
+			pdf.SetFillColor(226, 232, 240)
+			pdf.RoundedRect(barX, barY, barMaxW, barH, 0.8, "1234", "F")
+
+			// Barra proporcional preenchida
+			wBar := (float64(cat.TotalQueries) / float64(maxCatQueries)) * barMaxW
+			if wBar > 0 {
+				if cat.Blocked > 0 {
+					wBlocked := (float64(cat.Blocked) / float64(cat.TotalQueries)) * wBar
+					wAllowed := wBar - wBlocked
+					if wAllowed > 0 {
+						pdf.SetFillColor(cr, cg, cb)
+						pdf.Rect(barX, barY, wAllowed, barH, "F")
+					}
+					if wBlocked > 0 {
+						pdf.SetFillColor(239, 68, 68) // Vermelho bloqueado
+						pdf.Rect(barX+wAllowed, barY, wBlocked, barH, "F")
+					}
+				} else {
+					pdf.SetFillColor(cr, cg, cb)
+					pdf.RoundedRect(barX, barY, wBar, barH, 0.8, "1234", "F")
+				}
+			}
+		}
+	}
+
+	// Card 2: Gráfico de Barras por Aplicativo (Coluna Direita)
+	pdf.SetFillColor(248, 250, 252)
+	pdf.SetDrawColor(226, 232, 240)
+	pdf.RoundedRect(108, chartSectionY, colW, colH, 2, "1234", "FD")
+
+	pdf.SetXY(111, chartSectionY+3)
+	pdf.SetFont("Helvetica", "B", 8.5)
+	pdf.SetTextColor(15, 23, 42)
+	pdf.CellFormat(colW-6, 5, latin("TOP APLICATIVOS MAIS UTILIZADOS"), "", 1, "L", false, 0, "")
+
+	if len(report.ApplicationsStats) == 0 {
+		pdf.SetXY(111, chartSectionY+25)
+		pdf.SetFont("Helvetica", "I", 8)
+		pdf.SetTextColor(148, 163, 184)
+		pdf.CellFormat(colW-6, 6, latin("Nenhum aplicativo mapeado no período."), "", 0, "C", false, 0, "")
+	} else {
+		var maxAppQueries int64 = 1
+		for _, a := range report.ApplicationsStats {
+			if a.TotalQueries > maxAppQueries {
+				maxAppQueries = a.TotalQueries
+			}
+		}
+
+		itemStartY := chartSectionY + 9.0
+		for i, app := range report.ApplicationsStats {
+			if i >= 5 {
+				break
+			}
+			rowY := itemStartY + float64(i)*10.0
+			ar, ag, ab := parseHexColor(app.Color)
+
+			// Badge com emblema oficial da marca do aplicativo
+			pdf.SetFillColor(ar, ag, ab)
+			pdf.RoundedRect(111, rowY, 5, 5, 1.2, "1234", "F")
+			pdf.SetTextColor(255, 255, 255)
+			emblem := getAppEmblem(app.ID, app.Name)
+			if len(emblem) >= 3 {
+				pdf.SetFont("Helvetica", "B", 4.5)
+			} else if len(emblem) == 2 {
+				pdf.SetFont("Helvetica", "B", 5.5)
+			} else {
+				pdf.SetFont("Helvetica", "B", 6)
+			}
+			pdf.SetXY(111, rowY+0.6)
+			pdf.CellFormat(5, 4.2, emblem, "", 0, "C", false, 0, "")
+
+			// Nome do Aplicativo
+			appNameDisplay := app.Name
+			if len(appNameDisplay) > 23 {
+				appNameDisplay = appNameDisplay[:21] + ".."
+			}
+			pdf.SetXY(117, rowY)
+			pdf.SetFont("Helvetica", "B", 7.5)
+			pdf.SetTextColor(30, 41, 59)
+			pdf.CellFormat(46, 5, latin(appNameDisplay), "", 0, "L", false, 0, "")
+
+			// Total e Porcentagem
+			pdf.SetXY(163, rowY)
+			pdf.SetFont("Helvetica", "", 7)
+			pdf.SetTextColor(100, 116, 139)
+			appCountStr := fmt.Sprintf("%d (%.1f%%)", app.TotalQueries, app.Percentage)
+			pdf.CellFormat(34, 5, latin(appCountStr), "", 0, "R", false, 0, "")
+
+			// Barra de Progresso
+			barX := 117.0
+			barY := rowY + 5.2
+			barMaxW := 80.0
+			barH := 2.8
+
+			// Trilha vazia
+			pdf.SetFillColor(226, 232, 240)
+			pdf.RoundedRect(barX, barY, barMaxW, barH, 0.8, "1234", "F")
+
+			// Barra proporcional preenchida
+			wBar := (float64(app.TotalQueries) / float64(maxAppQueries)) * barMaxW
+			if wBar > 0 {
+				if app.Blocked > 0 {
+					wBlocked := (float64(app.Blocked) / float64(app.TotalQueries)) * wBar
+					wAllowed := wBar - wBlocked
+					if wAllowed > 0 {
+						pdf.SetFillColor(ar, ag, ab)
+						pdf.Rect(barX, barY, wAllowed, barH, "F")
+					}
+					if wBlocked > 0 {
+						pdf.SetFillColor(239, 68, 68) // Vermelho bloqueado
+						pdf.Rect(barX+wAllowed, barY, wBlocked, barH, "F")
+					}
+				} else {
+					pdf.SetFillColor(ar, ag, ab)
+					pdf.RoundedRect(barX, barY, wBar, barH, 0.8, "1234", "F")
+				}
+			}
+		}
+	}
+
+	pdf.SetY(chartSectionY + colH + 6)
+
+	// 3. CORPO: Por Máquina (Nome da máquina -> Categoria -> Site -> Acessos -> Bloqueado ou Não)
 	if len(report.Devices) == 0 {
 		pdf.SetFont("Helvetica", "I", 10)
 		pdf.SetTextColor(100, 116, 139)
@@ -303,4 +498,106 @@ func GenerateGroupReportPDF(report *storage.GroupReportResult, days int) ([]byte
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+func parseHexColor(hexStr string) (int, int, int) {
+	hexStr = strings.TrimPrefix(hexStr, "#")
+	if len(hexStr) == 3 {
+		hexStr = string([]byte{hexStr[0], hexStr[0], hexStr[1], hexStr[1], hexStr[2], hexStr[2]})
+	}
+	if len(hexStr) != 6 {
+		return 100, 116, 139 // fallback slate
+	}
+	var r, g, b int
+	fmt.Sscanf(hexStr, "%02x%02x%02x", &r, &g, &b)
+	return r, g, b
+}
+
+func getAppEmblem(appID, appName string) string {
+	switch strings.ToLower(appID) {
+	case "whatsapp":
+		return "WA"
+	case "youtube":
+		return "YT"
+	case "chatgpt":
+		return "AI"
+	case "instagram":
+		return "IG"
+	case "facebook":
+		return "FB"
+	case "netflix":
+		return "NF"
+	case "spotify":
+		return "SP"
+	case "discord":
+		return "DC"
+	case "telegram":
+		return "TG"
+	case "teams":
+		return "MS"
+	case "roblox":
+		return "RB"
+	case "steam":
+		return "ST"
+	case "bet365":
+		return "365"
+	case "betano":
+		return "B"
+	case "blaze":
+		return "BZ"
+	case "nubank":
+		return "NU"
+	case "itau":
+		return "IT"
+	case "bradesco":
+		return "BD"
+	case "banco_do_brasil":
+		return "BB"
+	case "claude_ai":
+		return "CL"
+	case "tiktok":
+		return "TT"
+	case "twitter", "x":
+		return "X"
+	case "google_drive", "google_docs", "google_agenda":
+		return "G"
+	case "office_365", "outlook", "azure":
+		return "MS"
+	default:
+		clean := strings.ToUpper(strings.TrimSpace(appName))
+		if len(clean) >= 2 {
+			return clean[:2]
+		}
+		if len(clean) == 1 {
+			return clean
+		}
+		return "AP"
+	}
+}
+
+func getCategorySymbol(catID string) string {
+	switch catID {
+	case "streaming":
+		return ">"
+	case "social":
+		return "#"
+	case "gaming":
+		return "+"
+	case "adult":
+		return "X"
+	case "gambling":
+		return "$"
+	case "trackers":
+		return "!"
+	case "ads":
+		return "AD"
+	case "crypto":
+		return "C"
+	case "dating":
+		return "&"
+	case "p2p_torrent":
+		return "U"
+	default:
+		return "G"
+	}
 }

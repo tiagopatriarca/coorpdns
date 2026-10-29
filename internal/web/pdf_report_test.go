@@ -19,6 +19,46 @@ func TestGenerateGroupReportPDF(t *testing.T) {
 		TotalQueries:   1540,
 		BlockedQueries: 320,
 		BlockRate:      20.8,
+		CategoriesStats: []storage.GroupCategoryStat{
+			{
+				ID:           "streaming",
+				Name:         "Streaming de Vídeo & Música",
+				Icon:         "fas fa-film",
+				Color:        "#ec4899",
+				TotalQueries: 700,
+				Blocked:      50,
+				Percentage:   45.5,
+			},
+			{
+				ID:           "trackers",
+				Name:         "Rastreadores & Telemetria",
+				Icon:         "fas fa-eye-slash",
+				Color:        "#6366f1",
+				TotalQueries: 400,
+				Blocked:      270,
+				Percentage:   26.0,
+			},
+		},
+		ApplicationsStats: []storage.GroupApplicationStat{
+			{
+				ID:           "netflix",
+				Name:         "Netflix",
+				Category:     "streaming",
+				Color:        "#e50914",
+				TotalQueries: 500,
+				Blocked:      0,
+				Percentage:   32.5,
+			},
+			{
+				ID:           "chatgpt",
+				Name:         "ChatGPT",
+				Category:     "ai",
+				Color:        "#10a37f",
+				TotalQueries: 300,
+				Blocked:      0,
+				Percentage:   19.5,
+			},
+		},
 		Devices: []storage.GroupDeviceActivity{
 			{
 				ClientIP:       "192.168.1.15",
