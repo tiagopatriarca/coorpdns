@@ -13,7 +13,7 @@ import (
 
 // GenerateGroupReportPDF gera um relatório corporativo em PDF estruturado por Grupo -> Máquina -> Sites
 // incluindo cabeçalho com nome do grupo, tabela por dispositivo e gráfico comparativo final.
-func GenerateGroupReportPDF(report *storage.GroupDetailedReport, days int) ([]byte, error) {
+func GenerateGroupReportPDF(report *storage.GroupReportResult, days int) ([]byte, error) {
 	pdf := fpdf.New("P", "mm", "A4", "")
 	pdf.SetAutoPageBreak(true, 18)
 	pdf.AliasNbPages("{nb}")
@@ -61,10 +61,10 @@ func GenerateGroupReportPDF(report *storage.GroupDetailedReport, days int) ([]by
 	periodStr := fmt.Sprintf("Período Analisado: Últimos %d dias (%s a %s)", days, report.FromDate, report.ToDate)
 	pdf.CellFormat(190, 6, latin(periodStr), "", 1, "L", false, 0, "")
 
-	if report.GroupDescription != "" {
+	if report.Description != "" {
 		pdf.SetFont("Helvetica", "I", 9)
 		pdf.SetTextColor(100, 116, 139)
-		pdf.CellFormat(190, 5, latin(fmt.Sprintf("Descrição: %s", report.GroupDescription)), "", 1, "L", false, 0, "")
+		pdf.CellFormat(190, 5, latin(fmt.Sprintf("Descrição: %s", report.Description)), "", 1, "L", false, 0, "")
 	}
 
 	pdf.Ln(3)

@@ -31,6 +31,7 @@ var (
 	domainOnlyRegex     = regexp.MustCompile(`^[a-zA-Z0-9.\-_]{1,253}$`)
 	hexColorRegex       = regexp.MustCompile(`^#[0-9a-fA-F]{3,8}$`)
 	safeReportTypeRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-]{1,32}$`)
+	safeFilenameRegex   = regexp.MustCompile(`[^a-zA-Z0-9_\-]+`)
 )
 
 func sanitizeCSVCell(val string) string {
@@ -665,7 +666,7 @@ func (s *Server) handleExportPDF(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	report, err := s.storage.GetGroupDetailedReportFiltered(groupID, days, 50, u.AllowedGroups)
+	report, err := s.storage.GetGroupReportFiltered(groupID, days, 50, u.AllowedGroups)
 	if err != nil {
 		http.Error(w, "Erro ao consolidar dados do relatório", http.StatusInternalServerError)
 		return

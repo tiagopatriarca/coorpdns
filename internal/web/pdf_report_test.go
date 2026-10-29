@@ -8,18 +8,18 @@ import (
 )
 
 func TestGenerateGroupReportPDF(t *testing.T) {
-	mockReport := &storage.GroupDetailedReport{
-		GroupID:          2,
-		GroupName:        "Smart TVs & Streaming",
-		GroupDescription: "Televisores e reprodutores de mídia",
-		GroupColor:       "#38bdf8",
-		FromDate:         "2026-10-22",
-		ToDate:           "2026-10-29",
-		DevicesCount:     2,
-		TotalQueries:     1540,
-		BlockedQueries:   320,
-		BlockRate:        20.8,
-		Devices: []storage.GroupDeviceDetail{
+	mockReport := &storage.GroupReportResult{
+		GroupID:        2,
+		GroupName:      "Smart TVs & Streaming",
+		Description:    "Televisores e reprodutores de mídia",
+		GroupColor:     "#38bdf8",
+		FromDate:       "2026-10-22",
+		ToDate:         "2026-10-29",
+		DevicesCount:   2,
+		TotalQueries:   1540,
+		BlockedQueries: 320,
+		BlockRate:      20.8,
+		Devices: []storage.GroupDeviceActivity{
 			{
 				ClientIP:       "192.168.1.15",
 				ClientName:     "Smart TV Sala",

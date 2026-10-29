@@ -388,7 +388,7 @@ func TestSecurity_DefaultGroupScheduleDoesNotBypassBlocking(t *testing.T) {
 
 	appRules, _ := store.GetGroupApplicationRules(1)
 	catRules, _ := store.GetGroupCategoryRules(1)
-	blocked, rule := srv.filter.CheckPolicy("malware-domain.test", appRules, catRules, sched.IsActive(), sched.Mode, false)
+	blocked, rule := srv.filter.CheckPolicy("malware-domain.test", nil, appRules, catRules, sched.IsActive(), sched.Mode, false)
 	if !blocked {
 		t.Errorf("domínio bloqueado sofreu bypass fail-open com agendamento padrão! rule=%q", rule)
 	}

@@ -430,11 +430,29 @@ type GroupReportResult struct {
 	GroupColor     string                `json:"group_color"`
 	Description    string                `json:"description"`
 	Days           int                   `json:"days"`
+	FromDate       string                `json:"from_date"`
+	ToDate         string                `json:"to_date"`
 	TotalQueries   int64                 `json:"total_queries"`
 	BlockedQueries int64                 `json:"blocked_queries"`
 	BlockRate      float64               `json:"block_rate"`
 	DevicesCount   int                   `json:"devices_count"`
 	Devices        []GroupDeviceActivity `json:"devices"`
+}
+
+func (d *DB) GetGroupReportFiltered(groupID int64, days int, maxDomainsPerDevice int, allowedGroupIDs []int64) (*GroupReportResult, error) {
+	if allowedGroupIDs != nil {
+		allowed := false
+		for _, ag := range allowedGroupIDs {
+			if ag == groupID {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return nil, fmt.Errorf("acesso não autorizado ao grupo")
+		}
+	}
+	return d.GetGroupReport(groupID, days, maxDomainsPerDevice)
 }
 
 func (d *DB) GetGroupReport(groupID int64, days int, maxDomainsPerDevice int) (*GroupReportResult, error) {
@@ -445,10 +463,16 @@ func (d *DB) GetGroupReport(groupID int64, days int, maxDomainsPerDevice int) (*
 		maxDomainsPerDevice = 50
 	}
 	cutoffDate := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
+	todayDate := time.Now().Format("2006-01-02")
 
 	// 1. Busca dados do grupo
 	groupRow := d.db.QueryRow("SELECT id, name, COALESCE(description, ''), color FROM client_groups WHERE id = ?", groupID)
-	result := &GroupReportResult{Days: days, Devices: []GroupDeviceActivity{}}
+	result := &GroupReportResult{
+		Days:     days,
+		FromDate: cutoffDate,
+		ToDate:   todayDate,
+		Devices:  []GroupDeviceActivity{},
+	}
 	if err := groupRow.Scan(&result.GroupID, &result.GroupName, &result.Description, &result.GroupColor); err != nil {
 		return nil, fmt.Errorf("grupo não encontrado: %w", err)
 	}
